@@ -5,7 +5,9 @@
 	
 	"mogichannel": 791200153129451530,
 	
-	"role_names_for_channels": ["StrictBot","StatsBot","RandomBot","FriendBot","CarlBot","Dyno","Developer"],
+	"role_names_for_channels": ["StrictBot","StatsBot","RandomBot","FriendBot","CarlBot","Dyno","Developer", 
+		"Boss", "Lower Tier RT Arbitrator", "Higher Tier RT Arbitrator", "Higher Tier CT Arbitrator", "Lower Tier CT Arbitrator", "MKW Table Bot"],
 	
-	"roles_for_channels": [774888854016360479, 781343712037961769, 781343927441162240, 516303884512395264, 561704778959159296, 763048794027589663, 521154917675827221]
+	"roles_for_channels": [774888854016360479, 781343712037961769, 781343927441162240, 516303884512395264, 561704778959159296, 763048794027589663, 521154917675827221, 
+		387347888935534593, 399384750923579392, 399382503825211393, 521149807994208295, 792891432301625364, 747288331062083644]
 }

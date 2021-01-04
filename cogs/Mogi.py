@@ -1,3 +1,4 @@
+from os import name
 import discord
 from discord.ext import commands
 import json
@@ -492,14 +493,18 @@ class Mogi(commands.Cog):
             overwrites = {
                 ctx.guild.default_role: discord.PermissionOverwrite(read_messages=False),
                 ctx.guild.me: discord.PermissionOverwrite(read_messages=True)
-                }
+            }
             
             #tries to retrieve all these roles, and add them to the
             #channel overwrites if the role specified in the config file exists
             for bot_role_id in self.config["roles_for_channels"]:
                 bot_role = ctx.guild.get_role(bot_role_id)
                 if bot_role is not None:
-                    overwrites[bot_role] = discord.PermissionOverwrite(read_messages=True)
+                    #giving developer role manage_channels perm
+                    if bot_role.id == 521154917675827221:
+                        overwrites[bot_role] = discord.PermissionOverwrite(read_messages=True, manage_channels=True)
+                    else:
+                        overwrites[bot_role] = discord.PermissionOverwrite(read_messages=True)
             
 
             msg = "`%s`\n" % roomName
@@ -539,7 +544,17 @@ class Mogi(commands.Cog):
                 msg += ", ".join([player.display_name for player in missedTeams[i].keys()])
                 msg += " (%d MMR)\n" % missedMMRs[i]
             await ctx.send(msg)
-                  
+    
+    @commands.command()
+    @commands.bot_has_guild_permissions(manage_channels=True)
+    @commands.guild_only()
+    async def finish(self, ctx):
+        """Finishes the room by adding a checkmark to the channel. Anyone in the room can call this command."""
+        current_channel = ctx.channel
+        if current_channel not in self.channels:
+            return
+        
+        await current_channel.edit(name=f"{current_channel.name}-✅")
 
 def setup(bot):
     bot.add_cog(Mogi(bot))
