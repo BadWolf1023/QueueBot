@@ -1,6 +1,6 @@
-import discord
 from discord.ext import commands
 import json
+
 
 bot = commands.Bot(command_prefix='!', case_insensitive=True)
 
@@ -11,11 +11,13 @@ with open('./config.json', 'r') as cjson:
 
 @bot.event
 async def on_ready():
-    print("Logged in as {0.user}".format(bot))
+    print("Logged in as {0.user}".format(bot))    
 
 if __name__ == '__main__':
     for extension in initial_extensions:
         bot.load_extension(extension)
+
+    
 
 @bot.event
 async def on_command_error(ctx, error):
@@ -47,4 +49,3 @@ async def on_command_error(ctx, error):
     raise error
 
 bot.run(config["token"])
-
