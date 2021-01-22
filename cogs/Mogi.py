@@ -1,9 +1,11 @@
 import discord
 from discord.ext import commands, tasks
 import json
+import random
 from dateutil.parser import parse
 from datetime import datetime, timedelta
 import collections
+import dill as p
 
 CHECKMARK_ADDITION = "-\U00002713"
 CHECKMARK_ADDITION_LEN = 2
@@ -17,15 +19,16 @@ TIME_ADJUSTMENT = timedelta(hours=3)
 
 #This is the amount of time that players have to queue in the joining channel before Queuebot closes the channel and makes the rooms
 JOINING_TIME = timedelta(minutes=45)
-EXTENTSION_TIME = timedelta(minutes=10)
+EXTENTSION_TIME = timedelta(minutes=5)
 
-Scheduled_Event = collections.namedtuple('Scheduled_Event', 'track_type size time started mogi_channel')
+Scheduled_Event = collections.namedtuple('Scheduled_Event', 'track_type size time started')
 
 class Mogi(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         with open('./config.json', 'r') as cjson:
             self.config = json.load(cjson)
+        
             
         # no commands should work when self.started or self.gathering is False, 
         # except for start, which initializes each of these values.
@@ -64,6 +67,9 @@ class Mogi(commands.Cog):
         #Specify whether RTs or CTs, necessary for MMR lookup
         self.is_rt = True
         self._scheduler_task = self.sqscheduler.start()
+        
+        #Load in the schedule from the pkl
+        self.load_pkl_schedule()
     
     async def lockdown(self, channel:discord.TextChannel):
         overwrite = channel.overwrites_for(channel.guild.default_role)
@@ -89,13 +95,16 @@ class Mogi(commands.Cog):
         to_remove = [] #Keep a list of indexes to remove - can't remove while iterating
         for ind, event in enumerate(self.scheduled_events):
             if (event.time - JOINING_TIME) < cur_time:
-                if self.started or self.gathering: #We can't start a new event while the current event is already going
-                    to_remove.append(ind)
-                    await event.mogi_channel.send(f"Because there is an ongoing event right now, the following event has been removed: {self.get_event_str(event)}\n")
+                mogi_chan = self.get_mogi_channel()
+                to_remove.append(ind)
+                if mogi_chan == None: #cannot see the mogi channel, no where to send an error message, must silently fail
+                    pass
                 else:
-                    to_remove.append(ind)
-                    await self.launch_mogi(event.mogi_channel, event.track_type, event.size, True, event.time)
-                    await self.unlockdown(event.mogi_channel)
+                    if self.started or self.gathering: #We can't start a new event while the current event is already going
+                        await mogi_chan.send(f"Because there is an ongoing event right now, the following event has been removed: {self.get_event_str(event)}\n")
+                    else:
+                        await self.launch_mogi(mogi_chan, event.track_type, event.size, True, event.time)
+                        await self.unlockdown(mogi_chan)
         
         for ind in reversed(to_remove):
             del self.scheduled_events[ind]
@@ -157,7 +166,7 @@ class Mogi(commands.Cog):
             self.list.append({})
             for disc_id in temp_ids[self.size*i:(self.size*i + self.size)]:
                 member = await self.bot.fetch_user(disc_id)
-                self.list[i][member] = self.avgMMRs[i]
+                self.list[i][member] = [self.avgMMRs[i], False]
         self.started = True
         
                 
@@ -180,7 +189,7 @@ class Mogi(commands.Cog):
             
             
     async def is_mogi_channel(self, ctx):
-        if ctx.channel.id == self.config["mogichannel"]:
+        if ctx.channel == self.get_mogi_channel():
             return
             
         await(await ctx.send("You cannot use this command in this channel!")).delete(delay=5)
@@ -232,12 +241,13 @@ class Mogi(commands.Cog):
                     return i
         return False
         
-    @commands.command(aliases=['c'])
+    @commands.command(aliases=['c', 'ch', 'canhost'])
     @commands.max_concurrency(number=1,wait=True)
     @commands.guild_only()
     async def can(self, ctx, members: commands.Greedy[discord.Member]):
         """Tag your partners to invite them to a mogi or accept a invitation to join a mogi"""
-        
+        can_host = ctx.invoked_with.lower() in {'ch', 'canhost'}
+
         try:
             await Mogi.is_mogi_channel(self, ctx)
             await Mogi.is_started(self, ctx)
@@ -257,11 +267,37 @@ class Mogi(commands.Cog):
         checkList = await Mogi.check_list(self, ctx.author)
         if checkWait is not False:
             if self.waiting[checkWait][ctx.author][0] == True:
-                    await ctx.send("You have already confirmed for this event; type `!d` to drop")
-                    return
+                if self.waiting[checkWait][ctx.author][2] == True: #if they are hosting...
+                    if can_host:
+                        await ctx.send("You have already confirmed for this event; type `!d` to drop")
+                    else:
+                        self.waiting[checkWait][ctx.author][2] = False
+                        await ctx.send("No longer host for this event; type `!d` to drop")
+                else: #If they are not hosting...
+                    if can_host:
+                        self.waiting[checkWait][ctx.author][2] = True
+                        await ctx.send("Changed to host for this event; type `!d` to drop")
+                    else:
+                        await ctx.send("You have already confirmed for this event; type `!d` to drop")  
+                return
+            
         if checkList is not False:
-            await ctx.send("You have already confirmed for this event; type `!d` to drop")
+            currently_hosting = self.list[checkList][ctx.author][1]
+            
+            if currently_hosting:
+                if can_host:
+                    await ctx.send("You have already confirmed for this event; type `!d` to drop")
+                else:
+                    self.list[checkList][ctx.author][1] = False
+                    await ctx.send("No longer host for this event; type `!d` to drop")
+            else: #If they are not hosting...
+                if can_host:
+                    self.list[checkList][ctx.author][1] = True
+                    await ctx.send("Changed to host for this event; type `!d` to drop")
+                else:
+                    await ctx.send("You have already confirmed for this event; type `!d` to drop")  
             return
+            
 
         # logic for when no players are tagged
         if len(members) == 0:
@@ -269,6 +305,7 @@ class Mogi(commands.Cog):
             #but hasn't confirmed
             if checkWait is not False:
                 self.waiting[checkWait][ctx.author][0] = True
+                self.waiting[checkWait][ctx.author][2] = can_host
                 confirmedPlayers = []
                 missingPlayers = []
                 for player in self.waiting[checkWait].keys():
@@ -292,7 +329,8 @@ class Mogi(commands.Cog):
                     totalMMR = 0
                     for player in squad.keys():
                         playerMMR = int(squad[player][1])
-                        squad2[player] = playerMMR
+                        _can_host = squad[player][2]
+                        squad2[player] = [playerMMR, _can_host]
                         totalMMR += playerMMR
                         teamMsg += "%s (%d MMR)\n" % (player.display_name, int(playerMMR))
                     self.avgMMRs.append(int(totalMMR/self.size))
@@ -306,7 +344,7 @@ class Mogi(commands.Cog):
                     string += "Squad successfully added to mogi list `[%d team%s]`:\n%s" % (len(self.list), s, teamMsg)
                 
                 await ctx.send(string)
-                self.ongoing_mogi_checks()
+                await self.ongoing_mogi_checks()
                 return
             
             await ctx.send("You didn't tag the correct number of people for this format (%d)"
@@ -343,7 +381,9 @@ class Mogi(commands.Cog):
             await(await ctx.send("Error: MMR for player %s cannot be found! Placement players are not allowed to queue. If you are not placement, please contact a staff member for help"
                            % ctx.author.display_name)).delete(delay=10)
             return
+        
         players[ctx.author].append(playerMMR)
+        players[ctx.author].append(can_host)
         for i in range(self.size-1):
             players[members[i]] = [False]
             playerMMR = await sheet.mmr(members[i], self.is_rt)
@@ -352,6 +392,7 @@ class Mogi(commands.Cog):
                                % members[i].display_name)).delete(delay=10)
                 return
             players[members[i]].append(playerMMR)
+            players[members[i]].append(False)
         self.waiting.append(players)
         
         msg = "%s has created a squad with " % ctx.author.display_name
@@ -435,7 +476,7 @@ class Mogi(commands.Cog):
             self.mogi_channel = mogi_channel
             self.start_time = start_time
         
-        await mogi_channel.send("A%s %dv%d mogi has been started - @here Type `!c`, `!d`, or `!list`" % ("n RT" if self.is_rt else " CT", size, size))
+        await mogi_channel.send("A%s %dv%d mogi has been started - here Type `!c`, `!d`, or `!list`" % ("n RT" if self.is_rt else " CT", size, size))
 
     @commands.command()
     @commands.guild_only()
@@ -537,7 +578,7 @@ class Mogi(commands.Cog):
                 await ctx.send(msg)
                 msg = ""
             msg += "`%d.` " % (i+1)
-            msg += ", ".join([player.display_name for player in self.list[i].keys()])
+            msg += ", ".join([player.display_name + (" (host)" if self.list[i][player][1] else "") for player in self.list[i].keys()])
             msg += " (%d MMR)\n" % (self.avgMMRs[i])
         if(len(self.list) % (12/self.size) != 0):
             msg += ("`[%d/%d] teams for %d full rooms`"
@@ -567,10 +608,12 @@ class Mogi(commands.Cog):
             listString = ""
             confirmCount = 0
             for player in myTeam.keys():
-                listString += ("`%d.` %s (%d MMR)" % (playerNum, player.display_name, int(myTeam[player][1])))
+                host_str = "(host) " if myTeam[player][2] else ""
+                listString += ("`%d.` %s %s(%d MMR)" % (playerNum, player.display_name, host_str, int(myTeam[player][1])))
                 if myTeam[player][0] is False:
                     listString += " `✘ Unconfirmed`\n"
                 else:
+                    
                     listString += " `✓ Confirmed`\n"
                     confirmCount += 1
                 playerNum += 1
@@ -581,8 +624,9 @@ class Mogi(commands.Cog):
             myTeam = self.list[checkList]
             msg += ("`%s's squad [registered]`\n" % (ctx.author.display_name))
             for player in myTeam.keys():
-                msg += ("`%d.` %s (%d MMR)\n"
-                        % (playerNum, player.display_name, int(myTeam[player])))
+                host_str = "(host) " if myTeam[player][1] else ""
+                msg += ("`%d.` %s %s(%d MMR)\n"
+                        % (playerNum, player.display_name, host_str, int(myTeam[player][0])))
                 playerNum += 1
             await(await ctx.send(msg)).delete(delay=30)
 
@@ -606,7 +650,7 @@ class Mogi(commands.Cog):
                 await ctx.send(msg)
                 msg = ""
             msg += "`%d.` " % (i+1)
-            msg += ", ".join([player.display_name for player in sortedTeams[i].keys()])
+            msg += ", ".join([player.display_name + (" (host)" if self.list[i][player][1] else "") for player in self.list[i].keys()])
             msg += " (%d MMR)\n" % sortedMMRs[i]
         await ctx.send(msg)
 
@@ -634,6 +678,8 @@ class Mogi(commands.Cog):
         while startTime >= 60:
             startTime -= 60
             
+        category = mogi_channel.category
+            
         numTeams = int(numRooms * (12/self.size))
         finalList = self.list[0:numTeams]
         finalMMRs = self.avgMMRs[0:numTeams]
@@ -643,10 +689,8 @@ class Mogi(commands.Cog):
         sortedMMRs = [x for x, _ in sortTeamsMMR]
         sortedTeams = [finalList[i] for i in (x for _, x in sortTeamsMMR)]
         for i in range(numRooms):
-
             #creating room roles and channels
             roomName = "Room %d" % (i+1)
-            category = mogi_channel.category
             overwrites = {
                 mogi_channel.guild.default_role: discord.PermissionOverwrite(read_messages=False),
                 mogi_channel.guild.me: discord.PermissionOverwrite(read_messages=True)
@@ -668,24 +712,38 @@ class Mogi(commands.Cog):
             for j in range(int(12/self.size)):
                 index = int(i * 12/self.size + j)
                 msg += "`%d.` " % (j+1)
-                msg += ", ".join([player.display_name for player in sortedTeams[index].keys()])
+                msg += ", ".join([player.display_name + (" (host)" if self.list[index][player][1] else "") for player in self.list[index].keys()])
                 msg += " (%d MMR)\n" % sortedMMRs[index]
                 for player in sortedTeams[index].keys():
                     overwrites[player] = discord.PermissionOverwrite(read_messages=True)
             roomMsg = msg
             mentions = ""
+            hosts = []
             scoreboard = "Table: `!scoreboard %d " % (12/self.size)
             for j in range(int(12/self.size)):
                 index = int(i * 12/self.size + j)
                 mentions += " ".join([player.mention for player in sortedTeams[index].keys()])
                 mentions += " "
                 for player in sortedTeams[index].keys():
+                    #Scoreboard logic
                     scoreboard += player.display_name.replace(" ", "")
                     scoreboard += " "
+                    #Host logic
+                    if sortedTeams[index][player][1]: #If they queued as host
+                        hosts.append(player.display_name)
             
             roomMsg += "%s`\n" % scoreboard
-            roomMsg += ("\nDecide a host amongst yourselves; room open at :%02d, start at :%02d. Good luck!\n\n"
-                        % (openTime, startTime))
+            host_str = "Decide a host amongst yourselves; "
+            if len(hosts) > 0:
+                random.shuffle(hosts)
+                host_str = "**Host order:**\n"
+                for x, host in enumerate(hosts, 1):
+                    host_str += f"{x}. {host}\n"
+                host_str += "\n"
+
+            
+            roomMsg += ("\n%sRoom open at :%02d, start at :%02d. Good luck!\n\n"
+                        % (host_str, openTime, startTime))
             roomMsg += mentions
             roomChannel = await category.create_text_channel(name=roomName, overwrites=overwrites)
             self.channels.append([roomChannel, False])
@@ -762,13 +820,14 @@ class Mogi(commands.Cog):
             if mogi_channel == None:
                 ctx.send("I can't see the mogi channel, so I can't schedule this event.")
                 return
-            event = Scheduled_Event(track_type, size, actual_time, False, mogi_channel)
+            event = Scheduled_Event(track_type, size, actual_time, False)
             
             self.scheduled_events.append(event)
             self.scheduled_events.sort(key=lambda data:data.time)
             await ctx.send(f"Scheduled {Mogi.get_event_str(event)}")
         except (ValueError, OverflowError):
             await ctx.send("I couldn't figure out the date and time for your event. Try making it a bit more clear for me.")
+        self.pkl_schedule()
         
     @commands.command()
     @commands.guild_only()
@@ -797,7 +856,16 @@ class Mogi(commands.Cog):
         else:
             removed_event = self.scheduled_events.pop(event_num-1)
             await ctx.send(f"Removed `{event_num}.` {self.get_event_str(removed_event)}")
-    
+        self.pkl_schedule()
+        
+    @commands.command()
+    @commands.guild_only()
+    @commands.max_concurrency(number=1,wait=True)
+    async def testenv(self, ctx):
+        if ctx.author.id != 706120725882470460:
+            return
+        await self.__create_testing_env__()
+        await ctx.send("Done.")
         
     @staticmethod
     def get_event_str(this_event):
@@ -805,7 +873,30 @@ class Mogi(commands.Cog):
         timezone_adjusted_time = event_time + TIME_ADJUSTMENT
         event_time_str = timezone_adjusted_time.strftime(time_print_formatting)
         return f"{track_type.upper()} {event_size}v{event_size} on {event_time_str}"
+    
+    def pkl_schedule(self):
+        pkl_dump_path = "schedule_backup.pkl"
+        with open(pkl_dump_path, "wb") as pickle_out:
+            try:
+                p.dump(self.scheduled_events, pickle_out)
+            except:
+                print("Could not dump pickle for scheduled events.")
+                
+    def load_pkl_schedule(self):
+        try:
+            with open("schedule_backup.pkl", "rb") as pickle_in:
+                try:
+                    temp = p.load(pickle_in)
+                    if temp == None:
+                        temp = []
+                    self.scheduled_events = temp
+                except:
+                    print("Could not read in pickle for schedule_backup.pkl data.")
+                    self.scheduled_events = []
+        except:
+            print("schedule_backup.pkl does not exist, so no events loaded in. Will create when events are scheduled.")         
+            self.scheduled_events = []
             
-
+        
 def setup(bot):
     bot.add_cog(Mogi(bot))
