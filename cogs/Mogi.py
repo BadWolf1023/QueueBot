@@ -129,7 +129,7 @@ class Mogi(commands.Cog):
                 else:
                     if int(cur_time.second / 20) == 0:
                         force_time = self.start_time + EXTENTSION_TIME
-                        minutes_left = int((force_time - cur_time).seconds/60)
+                        minutes_left = int((force_time - cur_time).seconds/60) + 1
                         x_teams = int(int(12/self.size) - numLeftoverTeams)
                         await self.mogi_channel.send(f"Need {x_teams} more team(s) to start immediately. Starting in {minutes_left} minute(s) regardless.")
             
@@ -153,7 +153,7 @@ class Mogi(commands.Cog):
         
             
     async def __create_testing_env__(self):
-        self.avgMMRs = [0, 500, 1000, 1500, 2000, 2500]
+        self.avgMMRs = [100, 0, 300, 200, 500, 400]
         temp_ids = [706120725882470460, 196574963673595904,
                     474389780067778580, 235148962103951360,
                     155149108183695360, 775415990238314518,
@@ -476,7 +476,7 @@ class Mogi(commands.Cog):
             self.mogi_channel = mogi_channel
             self.start_time = start_time
         
-        await mogi_channel.send("A%s %dv%d mogi has been started - here Type `!c`, `!d`, or `!list`" % ("n RT" if self.is_rt else " CT", size, size))
+        await mogi_channel.send("A%s %dv%d mogi has been started - @here Type `!c`, `!d`, or `!list`" % ("n RT" if self.is_rt else " CT", size, size))
 
     @commands.command()
     @commands.guild_only()
@@ -650,7 +650,7 @@ class Mogi(commands.Cog):
                 await ctx.send(msg)
                 msg = ""
             msg += "`%d.` " % (i+1)
-            msg += ", ".join([player.display_name + (" (host)" if self.list[i][player][1] else "") for player in self.list[i].keys()])
+            msg += ", ".join([player.display_name + (" (host)" if sortedTeams[i][player][1] else "") for player in sortedTeams[i].keys()])
             msg += " (%d MMR)\n" % sortedMMRs[i]
         await ctx.send(msg)
 
@@ -712,7 +712,7 @@ class Mogi(commands.Cog):
             for j in range(int(12/self.size)):
                 index = int(i * 12/self.size + j)
                 msg += "`%d.` " % (j+1)
-                msg += ", ".join([player.display_name + (" (host)" if self.list[index][player][1] else "") for player in self.list[index].keys()])
+                msg += ", ".join([player.display_name + (" (host)" if sortedTeams[index][player][1] else "") for player in sortedTeams[index].keys()])
                 msg += " (%d MMR)\n" % sortedMMRs[index]
                 for player in sortedTeams[index].keys():
                     overwrites[player] = discord.PermissionOverwrite(read_messages=True)
