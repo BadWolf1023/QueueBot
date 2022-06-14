@@ -24,6 +24,7 @@ gc = gspread.service_account(filename='credentials.json')
 MKW_LOUNGE_RT_API = "https://www.mkwlounge.gg/api/ladderplayer.php?ladder_type=rt&player_names="
 MKW_LOUNGE_CT_API = "https://www.mkwlounge.gg/api/ladderplayer.php?ladder_type=ct&player_names="
 
+MKT_LOUNGE_API = "http://www.mariokarttour.net/api/leaderboard?from=1&to=9999"
 
 LORENZI_WEBSITE_DATA_API = "https://gb.hlorenzi.com/api/v1/graphql"
 MK7_GRAPHQL_PAYLOAD = """{
@@ -63,6 +64,8 @@ Guild_Rating_Data = namedtuple('Guild_Rating_Data', 'using_rating using_sheet sh
 
 
 json_cacher = {}
+CACHE_MKT_LOUNGE_DATA = True
+
 
 async def getJSONData(full_url):
     async with aiohttp.ClientSession() as session:
@@ -83,8 +86,10 @@ async def mkw_lounge_json_fetch(names, is_rt):
     full_url += ",".join(names)
     return await getJSONData(full_url)
     
-    
-    
+async def mkt_lounge_json_fetch():
+    return await getJSONData(MKT_LOUNGE_API)
+
+
     
 
 #Uses a 20s caching system to relieve spam load on lorenzi's website
@@ -105,6 +110,12 @@ def mkw_lounge_json_transformer(json_player_data):
     player_dict = {}
     for player in json_player_data['results']:
         player_dict[player['player_name'].lower().replace(" ", "")] = int(player['current_mmr'])
+    return player_dict
+
+def mkt_lounge_json_transformer(json_player_data):
+    player_dict = {}
+    for player in json_player_data:
+        player_dict[player['name'].lower().replace(" ", "")] = int(player['mmr'])
     return player_dict
 
 
@@ -128,6 +139,24 @@ def mkw_json_corruption_check(json_data):
         if "current_mmr" not in playerData or not Shared.isint(playerData["current_mmr"]):
             return True
         if "player_name" not in playerData or not isinstance(playerData["player_name"], str):
+            return True
+    return False
+
+def mkt_json_corruption_check(json_data):
+    if json_data == None:
+        print("Bad request to MKT Lounge API... Data was None.")
+        return True
+    if not isinstance(json_data, list):
+        print("Bad request to MKT Lounge API... Results not a list.")
+        return True
+
+    for playerData in json_data:
+        if not isinstance(playerData, dict):
+            return True
+
+        if "mmr" not in playerData or not Shared.isint(playerData["mmr"]):
+            return True
+        if "name" not in playerData or not isinstance(playerData["name"], str):
             return True
     return False
 
@@ -170,6 +199,7 @@ mk7_name_fix = utf8_to_ascii_mapping_name_fix
 mkw_item_rain_name_fix = utf8_to_ascii_mapping_name_fix
 mkw_lounge_name_fix = utf8_to_ascii_mapping_name_fix
 mk8dx_italia_lounge_name_fix = utf8_to_ascii_mapping_name_fix
+mkt_lounge_name_fix = utf8_to_ascii_mapping_name_fix
 
 def json_match_ratings(all_ratings, members:[discord.Member], data_corruption_check, json_transformer, name_fix=None):
     using_str = isinstance(members[0], str)
@@ -228,6 +258,27 @@ async def mkw_lounge_website_mmr(members:[discord.Member], is_rt=True, name_fix=
 
 async def mkw_lounge_mmr(ctx, members:[discord.Member], is_primary_leaderboard=True, is_primary_rating=True, name_fix=mkw_lounge_name_fix):
     return await mkw_lounge_website_mmr(members, is_rt=is_primary_leaderboard, name_fix=name_fix)
+
+
+async def mkt_lounge_website_mmr(members:[discord.Member], name_fix=None):
+    data = None
+    curTime = datetime.now()
+
+    if ("MKT_Data" not in json_cacher or json_cacher["MKT_Data"][1] + Shared.CACHING_TIME < curTime):
+        try:
+            data = await mkt_lounge_json_fetch()
+        except: #numerous failure types can occur, but they all mean the same thing: we didn't get out data
+            return False
+
+    if data is not None and CACHE_MKT_LOUNGE_DATA:
+        json_cacher["MKT_Data"] = (data, curTime)
+    elif "MKT_Data" in json_cacher:
+        data = json_cacher["MKT_Data"][0]
+
+    return json_match_ratings(data, members, mkt_json_corruption_check, mkt_lounge_json_transformer, name_fix)
+
+async def mkt_lounge_mmr(ctx, members:[discord.Member], is_primary_leaderboard=True, is_primary_rating=True, name_fix=mkt_lounge_name_fix):
+    return await mkt_lounge_website_mmr(members, name_fix=name_fix)
 
 
 
@@ -451,6 +502,8 @@ class GuildRating():
             return await mkw_lounge_mmr(ctx, members, is_primary_leaderboard, is_primary_rating)
         elif Shared.get_guild_id(ctx) == Shared.MK8DX_ITALIA_GUILD_ID or Shared.get_guild_id(ctx) == Shared.MK8DX_ITALIA_TEST_GUILD_ID:
             return await mk8_italia_mmr(ctx, members, is_primary_leaderboard, is_primary_rating)
+        elif Shared.get_guild_id(ctx) == Shared.MKT_LOUNGE_GUILD_ID:
+            return await mkt_lounge_mmr(ctx, members, is_primary_leaderboard, is_primary_rating)
         elif self.guild_rating.using_sheet:
             return await self.google_sheets_mmr(ctx, members, is_primary_leaderboard, is_primary_rating)
         return False
