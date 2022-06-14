@@ -261,23 +261,20 @@ async def mkw_lounge_mmr(ctx, members:[discord.Member], is_primary_leaderboard=T
 
 
 async def mkt_lounge_website_mmr(members:[discord.Member], name_fix=None):
-    using_str = isinstance(members[0], str)
-    names = ['']*len(members)
-    if name_fix is None:
-        names = [member.display_name.lower().replace(" ", "") for member in members] if not using_str else [member.lower().replace(" ", "") for member in members]
-    else:
-        names = [name_fix(member.display_name) for member in members] if not using_str else [name_fix(member) for member in members]
-
     data = None
+    curTime = datetime.now()
 
-    try:
-        data = await mkt_lounge_json_fetch()
-        if data is not None and CACHE_MKT_LOUNGE_DATA:
-            json_cacher["MKT_Data"] = data
-        elif "MKT_Data" in json_cacher:
-            data = json_cacher["MKT_Data"]
-    except: #numerous failure types can occur, but they all mean the same thing: we didn't get out data
-        return False
+    if ("MKT_Data" not in json_cacher or json_cacher["MKT_Data"][1] + Shared.CACHING_TIME < curTime):
+        try:
+            data = await mkt_lounge_json_fetch()
+        except: #numerous failure types can occur, but they all mean the same thing: we didn't get out data
+            return False
+
+    if data is not None and CACHE_MKT_LOUNGE_DATA:
+        json_cacher["MKT_Data"] = (data, curTime)
+    elif "MKT_Data" in json_cacher:
+        data = json_cacher["MKT_Data"][0]
+
     return json_match_ratings(data, members, mkt_json_corruption_check, mkt_lounge_json_transformer, name_fix)
 
 async def mkt_lounge_mmr(ctx, members:[discord.Member], is_primary_leaderboard=True, is_primary_rating=True, name_fix=mkt_lounge_name_fix):
