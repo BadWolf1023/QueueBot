@@ -5,7 +5,7 @@ Created on Mar 7, 2021
 '''
 from datetime import timedelta
 TESTING_SERVER_ID = 739733336871665696
-BAD_WOLF_ID = 706120725882470460
+BAD_WOLF_ID = 1110408991839883274
 TESTING=False
 QUEUEBOT_INVITE_LINK = "https://discord.com/api/oauth2/authorize?client_id=803378682479640586&permissions=269667344&scope=bot"
 MK7_GUILD_ID = 280462328603082753
