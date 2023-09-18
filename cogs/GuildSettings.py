@@ -9,7 +9,7 @@ from datetime import timedelta
 import dill as p
 from CustomExceptions import NoGuildSettings
 from ExtraChecks import carrot_prohibit_check
-from Shared import QUEUEBOT_INVITE_LINK, get_guild_id
+from Shared import QUEUEBOT_INVITE_LINK, get_guild_id, BAD_WOLF_ID
 
 class GuildSettings():
     def __init__(self):
@@ -382,7 +382,7 @@ async def hasroles(ctx, settings=None):
         return False
     if ctx.author.guild_permissions.administrator:
         return True
-    if ctx.author.id == 706120725882470460:
+    if ctx.author.id == BAD_WOLF_ID:
         return True
     roles_have_power = get_guild_settings(ctx).roles_have_power if settings is None else settings
     for rolename in roles_have_power:
