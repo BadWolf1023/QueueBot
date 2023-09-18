@@ -4,10 +4,11 @@ import discord
 from cogs.Queue import elo_check
 from itertools import cycle
 from CustomExceptions import NoGuildSettings, NoCarrotAllowed, NotLounge, RatingManuallyManaged
+import Shared
 
 
 
-bot = commands.Bot(owner_id=706120725882470460, command_prefix=('!', '^'), case_insensitive=True, intents=discord.Intents.all())
+bot = commands.Bot(owner_id=Shared.BAD_WOLF_ID, command_prefix=('!', '^'), case_insensitive=True, intents=discord.Intents.all())
 STARTED = False
 
 initial_extensions = ['cogs.Queue', 'cogs.Elo', 'cogs.MogiBotDefaultSetup']
