@@ -12,7 +12,7 @@ def owner_or_permissions(**perms):
     async def extended_check(ctx):
         if ctx.guild is None:
             return False
-        return ctx.author.id == 706120725882470460 or await original(ctx)
+        return ctx.author.id == BAD_WOLF_ID or await original(ctx)
     return commands.check(extended_check)
 
 
