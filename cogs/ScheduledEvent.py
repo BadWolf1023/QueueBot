@@ -6,13 +6,6 @@ time_print_formatting = "%B %d, %Y at %I:%M%p Eastern Time"
 class Scheduled_Event():
     def __init__(self, leaderboard_type, team_size, teams_per_room, queue_close_time, started, start_channel_id,
                  server_id):
-        print(type(leaderboard_type))
-        print(type(team_size))
-        print(type(teams_per_room))
-        print(type(queue_close_time))
-        print(type(started))
-        print(type(start_channel_id))
-        print(type(server_id))
         self.leaderboard_type = leaderboard_type
         self.team_size = team_size
         self.teams_per_room = teams_per_room

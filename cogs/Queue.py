@@ -1381,7 +1381,6 @@ class Queue(commands.Cog):
         pkl_dump_path = "schedule_backup.pkl"
         with open(pkl_dump_path, "wb") as pickle_out:
             try:
-                print(self.scheduled_events)
                 p.dump(self.scheduled_events, pickle_out)
             except:
                 print("Could not dump pickle for scheduled events.")
