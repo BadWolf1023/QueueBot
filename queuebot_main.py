@@ -1,10 +1,14 @@
+import discord
+
 from discord.ext import commands, tasks
 import json
-import discord
+
 from cogs.Queue import elo_check
 from itertools import cycle
 from CustomExceptions import NoGuildSettings, NoCarrotAllowed, NotLounge, RatingManuallyManaged
 import Shared
+import asyncio
+
 
 
 
@@ -26,13 +30,7 @@ async def on_ready():
         statuses.start()
         print("Logged in as {0.user}".format(bot))
         STARTED = True
-       
 
-if __name__ == '__main__':
-    for extension in initial_extensions:
-        bot.load_extension(extension)
-    
-    
 
 @bot.event
 async def on_command_error(ctx, error):
@@ -144,6 +142,17 @@ async def on_message(message: discord.Message):
     await elo_check(bot, message)
     #We overrode bot's on_message function, so we must manually invoke process commands
     await bot.process_commands(message)
-                    
-    
+
+
+
+def main():
+    for extension in initial_extensions:
+        bot.load_extension(extension)
+
+if __name__ == '__main__':
+    main()
+
 bot.run(config["token"])
+
+
+
