@@ -2,7 +2,7 @@ import discord
 from discord.ext import commands, tasks
 import json
 from dateutil.parser import parse
-from datetime import datetime, timedelta
+from datetime import datetime
 import dill as p
 from collections import defaultdict
 from cogs import GuildSettings
@@ -18,6 +18,8 @@ import warnings
 from dateutil.parser import UnknownTimezoneWarning
 from time import sleep, time
 
+from cogs.ScheduledEvent import Scheduled_Event, TIME_ADJUSTMENT
+
 
 
 
@@ -25,7 +27,6 @@ from time import sleep, time
 
 CHECKMARK_ADDITION = "-\U00002713"
 CHECKMARK_ADDITION_LEN = 2
-time_print_formatting = "%B %d, %Y at %I:%M%p Eastern Time"
 
 
 #Here is the hierarchy for this file and its classes:
@@ -36,7 +37,7 @@ time_print_formatting = "%B %d, %Y at %I:%M%p Eastern Time"
 #This is so that you don't have to adjust your machine clock to accomodate for your staff
 
 #For example, if my staff is supposed to schedule events in ET and my machine is PST, this number would be 3 since ET is 3 hours ahead of my machine's PST
-TIME_ADJUSTMENT = timedelta(hours=3)
+
 
 
 GUILDS_SCHEDULES = {}
@@ -1027,32 +1028,6 @@ class IndividualQueue():
             return
         await self.makeRoomsLogic(ctx.channel, openTime, guild_settings)
 
-class Scheduled_Event():
-    def __init__(self, leaderboard_type, team_size, teams_per_room, queue_close_time, started, start_channel_id, server_id):
-        self.leaderboard_type = leaderboard_type
-        self.team_size = team_size
-        self.teams_per_room = teams_per_room
-        self.queue_close_time = queue_close_time
-        self.started = started
-        self.start_channel_id = start_channel_id
-        self.server_id = server_id
-    
-    def get_event_str(self, bot):
-        guild_settings = GuildSettings.get_guild_settings(self.server_id)
-        
-        queue_close_time_EST = self.queue_close_time + TIME_ADJUSTMENT
-        queue_close_time_EST_str = queue_close_time_EST.strftime(time_print_formatting)
-        queue_open_time_EST = queue_close_time_EST - guild_settings.joining_time
-        queue_open_time_EST_str = queue_open_time_EST.strftime(time_print_formatting)
-        GuildSettings.get_guild_settings(self.server_id)
-        channel = None
-        try:
-            channel = bot.get_channel(self.start_channel_id)
-        except:
-            pass
-        return f"{self.leaderboard_type} {self.team_size}v{self.team_size}, {self.teams_per_room} teams per room, queueing in {'#invalid-channel' if channel is None else channel.mention}" + "\n\t\t" + f"- Queueing opens at {queue_open_time_EST_str}" + "\n\t\t" + f"- Queueing closes at {queue_close_time_EST_str}"
-        
-        
         
         
         
@@ -1406,6 +1381,7 @@ class Queue(commands.Cog):
         pkl_dump_path = "schedule_backup.pkl"
         with open(pkl_dump_path, "wb") as pickle_out:
             try:
+                print(self.scheduled_events)
                 p.dump(self.scheduled_events, pickle_out)
             except:
                 print("Could not dump pickle for scheduled events.")

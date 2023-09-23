@@ -725,7 +725,8 @@ class Elo(commands.Cog):
                     print("Could not read in pickle for guild_sheets_backup.pkl data.")
                     raise
         except:
-            print("guild_sheets_backup.pkl does not exist, so no guild data loaded in. Will create when guilds set their settings.")         
+            print("guild_sheets_backup.pkl does not exist, so no guild data loaded in. Will create when guilds set their settings.")
+
     def connect_all_sheets(self):
         for guild_sheet in self.guild_sheets.values():
             guild_sheet.non_async_set_up_system()
