@@ -122,7 +122,7 @@ def strip_prefix_and_command(message:str, valid_terms:set, prefix="!"):
     return message.strip()
 
 
-def get_player_str(player, rating, is_secondary_type, guild_settings:GuildSettings.GuildSettings, add_new_line_end=True):
+def get_player_str(player: discord.Member, rating: int, is_secondary_type: bool, guild_settings:GuildSettings.GuildSettings, add_new_line_end=True):
     
     secondary_name_str = (guild_settings.secondary_rating_description_text if is_secondary_type else guild_settings.primary_rating_description_text).strip()
     
@@ -232,6 +232,10 @@ class IndividualQueue():
         # self.list is also a list of dictionaries, with the keys each corresponding to a
         # Discord member class, and the values being the player's rating/elo.
         self.list = []
+
+        # self.free_agents is dictionary, each of the keys is a Discord member class, and the
+        # associated value is that player's rating/elo
+        self.free_agents = {}
         
         # contains the avg rating/elo of each confirmed team
         self.teamRatings = []
@@ -534,6 +538,14 @@ class IndividualQueue():
                 if player == member:
                     return i
         return False
+
+    async def check_free_agent(self, member: discord.Member):
+        # for testing, it's convenient to change player.id
+        # and member.id to player.display_name
+        # and member.display_name respectively
+        # (lets you test with only 2 accounts and changing
+        #  nicknames)
+        return member if member in self.free_agents else False
     
 
     async def is_started(self, ctx):
@@ -556,6 +568,7 @@ class IndividualQueue():
         self.teams_per_room = teams_per_room
         self.waiting = []
         self.list = []
+        self.free_agents = {}
         self.teamRatings = []
         self.is_primary_leaderboard = leaderboard_type.lower() == guild_settings.primary_leaderboard_name.lower()
         self.queue_channel = queue_channel
@@ -627,8 +640,47 @@ class IndividualQueue():
             return False
         self.is_automated = False
         await self.launch_queue(ctx.channel, leaderboard_type_fixed, team_size, teams_per_room, guild_settings)
-        
-    
+
+    async def free_agent(self, ctx, guild_settings:GuildSettings.GuildSettings):
+        """Join the free agent list to show you're willing to play on any team!"""
+        try:
+            await self.is_started(ctx)
+            await self.is_gathering(ctx)
+        except:
+            return
+        if self.team_size == 1:
+            await ctx.send("The free agent list is disabled when the number of people per team is 1. Just `!c`")
+            return
+
+        checkList = await self.check_list(ctx.author)
+        checkFreeAgent = await self.check_free_agent(ctx.author)
+        if checkFreeAgent is not False:
+            await ctx.send("You have already joined the free agent list for this event; type `!d` to drop")
+            return
+        if checkList is not False:
+            await ctx.send("You have already confirmed for this event (list); type `!d` to drop")
+            return
+
+
+        sheet = self.bot.get_cog('Elo')
+        player_mmrs = await sheet.mmr(ctx, [ctx.author], self.is_primary_leaderboard)
+
+        if player_mmrs is False:
+            await ctx.send(
+                "There was an error pulling player ratings. How the ratings are pulled may not have been set up correctly, or where they are being pulled from could be down/offline.")
+            return
+        for player, mmr in player_mmrs.items():
+            if mmr is False:
+                rating_name = guild_settings.primary_rating_display_text if guild_settings.primary_rating_display_text.strip() != "" else "Elo/Rating"
+                await(await ctx.send(
+                    f"Error: {rating_name} for player {player.display_name} cannot be found! Placement players are not allowed to queue. If you are not placement, please contact a staff member for help")).delete(
+                    delay=10)
+                return
+            self.free_agents[player] = mmr
+
+        msg = "%s has joined the free agent list. To leave the free agent list, `!d` or join a squad." % ctx.author.display_name
+        await(await ctx.send(msg)).delete(delay=10)
+
     async def can(self, ctx, members, guild_settings:GuildSettings.GuildSettings):
         """Tag your partners to invite them to a queue or accept a invitation to join a queue"""
         try:
@@ -746,7 +798,7 @@ class IndividualQueue():
                 rating_name = guild_settings.primary_rating_display_text if guild_settings.primary_rating_display_text.strip() != "" else "Elo/Rating"
                 await(await ctx.send(f"Error: {rating_name} for player {player.display_name} cannot be found! Placement players are not allowed to queue. If you are not placement, please contact a staff member for help")).delete(delay=10)
                 return
-            players[player] = [False, primaryPlayerMMRs[player], False]
+            players[player] = [False, mmr, False]
         players[ctx.author][0] = True #Person who initiated the squad is automatically confirmed
         
             
@@ -913,7 +965,7 @@ class IndividualQueue():
             except discord.NotFound:
                 self.channels.pop(i)
             except Exception as e:
-                print("line 914: end -> for i in range(len(self.channels)-1, -1, -1)")
+                print("line 924: end -> for i in range(len(self.channels)-1, -1, -1)")
                 print(e)
 
         self.started = False
@@ -924,6 +976,7 @@ class IndividualQueue():
         self.start_time = None
         self.waiting = []
         self.list = []
+        self.free_agents = {}
         self.teamRatings = []
         self.is_primary_leaderboard = True
         await ctx.send("%s has ended the queue" % ctx.author.display_name)
@@ -935,7 +988,7 @@ class IndividualQueue():
         self.leaderboard_type_str = None
         
     async def _list(self, ctx, guild_settings:GuildSettings.GuildSettings):
-        """Display the list of confirmed squads for a queue"""
+        """Display the list of confirmed squads and free agents for a queue"""
         try:
             await self.is_started(ctx)
         except:
@@ -952,6 +1005,16 @@ class IndividualQueue():
                 msgs.append("")
         
             msgs[-1] += addition
+
+        for i, (player, mmr) in self.free_agents.items():
+            # safeguard against potentially reaching 2000-char msg limit
+            addition = "`%d.` " % (i + 1)
+            addition += get_player_str(player, mmr, False, guild_settings)
+            if len(msgs[-1]) + len(addition) >= 2000:
+                msgs.append("")
+
+            msgs[-1] += addition
+
         
         addition = ""
         if(len(self.list) % (self.teams_per_room) != 0):
@@ -1144,6 +1207,17 @@ class Queue(commands.Cog):
         guild_settings = GuildSettings.get_guild_settings(ctx)        
         guilds_queues = self.get_guilds_queues(ctx)
         await self.get_queue_create(ctx, guilds_queues).drop(ctx, guild_settings)
+
+    @commands.command(aliases=['fa', 'freeagent'])
+    @commands.max_concurrency(number=1, per=BucketType.guild, wait=True)
+    @commands.guild_only()
+    @carrot_prohibit_check()
+    @GuildSettings.has_guild_settings_check()
+    async def free_agent(self, ctx):
+        """Join the free agent list to show you're willing to play on any team!"""
+        guild_settings = GuildSettings.get_guild_settings(ctx)
+        guilds_queues = self.get_guilds_queues(ctx)
+        await self.get_queue_create(ctx, guilds_queues).free_agent(ctx, guild_settings)
 
     @commands.command(aliases=['r'])
     @commands.max_concurrency(number=1,per=BucketType.guild,wait=True)
