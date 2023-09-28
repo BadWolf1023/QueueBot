@@ -15,7 +15,6 @@ from collections import namedtuple, defaultdict
 import dill as p
 from ExtraChecks import owner_or_permissions, carrot_prohibit_check, exception_on_not_lounge, guild_manually_managed_for_elo
 import Shared
-from datetime import datetime
 import unidecode
 
 gc = gspread.service_account(filename='credentials.json')
@@ -94,7 +93,7 @@ async def mkt_lounge_json_fetch():
 
 #Uses a 20s caching system to relieve spam load on lorenzi's website
 async def lorenzi_get_JSON(ctx, graph_ql_payload):
-    curTime = datetime.now()
+    curTime = Shared.get_cur_time()
     if graph_ql_payload not in json_cacher or json_cacher[graph_ql_payload][1] + Shared.CACHING_TIME < curTime:
         json_cacher[graph_ql_payload] = (await lorenzi_fetch(graph_ql_payload), curTime)
     return json_cacher[graph_ql_payload][0]
@@ -262,7 +261,7 @@ async def mkw_lounge_mmr(ctx, members:[discord.Member], is_primary_leaderboard=T
 
 async def mkt_lounge_website_mmr(members:[discord.Member], name_fix=None):
     data = None
-    curTime = datetime.now()
+    curTime = Shared.get_cur_time()
 
     if ("MKT_Data" not in json_cacher or json_cacher["MKT_Data"][1] + Shared.CACHING_TIME < curTime):
         try:

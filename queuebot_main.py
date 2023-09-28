@@ -7,10 +7,6 @@ from cogs.Queue import elo_check
 from itertools import cycle
 from CustomExceptions import NoGuildSettings, NoCarrotAllowed, NotLounge, RatingManuallyManaged
 import Shared
-import asyncio
-
-
-
 
 bot = commands.Bot(owner_id=Shared.BAD_WOLF_ID, command_prefix=('!', '^'), case_insensitive=True, intents=discord.Intents.all())
 STARTED = False

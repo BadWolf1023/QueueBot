@@ -106,6 +106,7 @@ class GuildSettings():
     def settings_display(self):
         all_messages = []
         cur_msg = "`Setting Name`   :   Setting Value\n\n"
+
         for k,v in self.__dict__.items():
             if k not in self:
                 continue

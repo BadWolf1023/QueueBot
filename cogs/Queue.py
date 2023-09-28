@@ -1,13 +1,14 @@
+import re
+
 import discord
 from discord.ext import commands, tasks
 import json
-from dateutil.parser import parse
-from datetime import datetime
+from dateutil.parser import parse, UnknownTimezoneWarning
 import dill as p
 from collections import defaultdict
 from cogs import GuildSettings
-from Shared import is_lounge, DISCORD_MAX_MESSAGE_LEN, isint, get_guild_id, MKW_LOUNGE_RT_SQUAD_QUEUE_ROLE_STR, MKW_LOUNGE_CT_SQUAD_QUEUE_ROLE_STR, MKW_LOUNGE_ML_CHANNEL_ID, MKW_LOUNGE_MLLU_CHANNEL_ID
-from ExtraChecks import carrot_prohibit_check, lounge_only_check, badwolf_command_check
+from Shared import isint, is_lounge, DISCORD_MAX_MESSAGE_LEN, get_guild_id, MKW_LOUNGE_RT_SQUAD_QUEUE_ROLE_STR, MKW_LOUNGE_CT_SQUAD_QUEUE_ROLE_STR, MKW_LOUNGE_ML_CHANNEL_ID, MKW_LOUNGE_MLLU_CHANNEL_ID, get_cur_time, epoch_to_utc_dt, naive_to_utc, send_batch_messages
+from ExtraChecks import carrot_prohibit_check, badwolf_command_check
 from builtins import staticmethod
 from typing import List
 from statistics import mean
@@ -15,30 +16,15 @@ from math import sqrt
 import random
 from discord.ext.commands.cooldowns import BucketType
 import warnings
-from dateutil.parser import UnknownTimezoneWarning
-from time import sleep, time
+from time import time
 
-from cogs.ScheduledEvent import Scheduled_Event, TIME_ADJUSTMENT
-
-
-
-
-
+from cogs.ScheduledEvent import Scheduled_Event
 
 CHECKMARK_ADDITION = "-\U00002713"
 CHECKMARK_ADDITION_LEN = 2
 
-
 #Here is the hierarchy for this file and its classes:
-#AllQueues is a cog that receives commands, it contains 
-
-#There are two timezones: the timezone your staff schedules events in, and your server's timezone
-#Set this to the number of hours ahead (or behind) your staff's timezone is from your server's timezone
-#This is so that you don't have to adjust your machine clock to accomodate for your staff
-
-#For example, if my staff is supposed to schedule events in ET and my machine is PST, this number would be 3 since ET is 3 hours ahead of my machine's PST
-
-
+#AllQueues is a cog that receives commands, it contains
 
 GUILDS_SCHEDULES = {}
 
@@ -248,7 +234,7 @@ class IndividualQueue():
         #Specify whether primary leaderboard or secondary leaderboard, necessary for rating/elo lookup
         self.is_primary_leaderboard = True
         
-        self.last_used = datetime.now()
+        self.last_used = get_cur_time()
 
         self.mllu_sticky_message = None
         self.ml_sticky_message = None
@@ -304,7 +290,7 @@ class IndividualQueue():
         if not self.is_automated or not self.started or self.making_rooms_run:
             return
         
-        cur_time = datetime.now()
+        cur_time = get_cur_time()
         guild_settings = GuildSettings.get_guild_settings(get_guild_id(self.queue_channel))
 
         if (self.start_time + guild_settings.extension_time) <= cur_time:
@@ -326,7 +312,7 @@ class IndividualQueue():
    
     @tasks.loop(seconds=15.0)
     async def sticky_message_updater(self):
-        """Updates sticky messages in MKW Loounge"""
+        """Updates sticky messages in MKW Lounge"""
         if self.ml_sticky_message is not None:
             try:
                 await self.ml_sticky_message.edit(content=self._get_mkw_ml_channel_message())
@@ -607,7 +593,7 @@ class IndividualQueue():
 
             rooms_creation_str = ""
             if self.is_automated and self.started and not self.making_rooms_run:
-                cur_time = datetime.now()
+                cur_time = get_cur_time()
                 minutes_until_start = (int((self.start_time - cur_time).total_seconds()) // 60) + 1
                 rooms_creation_str = f"\n{minutes_until_start} minute{'' if minutes_until_start == 1 else 's'} until rooms are made"
                 if self.start_time <= cur_time:
@@ -945,25 +931,16 @@ class IndividualQueue():
             return
         msgs = ["`Queue List`\n"]
         for i in range(len(self.list)):
-            #safeguard against potentially reaching 2000-char msg limit
-            addition = "`%d.` " % (i+1)
-            addition += get_team_str(self.list[i], self.teamRatings[i], guild_settings)
-            if len(msgs[-1])+len(addition) >= 2000:
-                msgs.append("")
-        
-            msgs[-1] += addition
-        
-        addition = ""
+            team_str = "`%d.` " % (i+1)
+            team_str += get_team_str(self.list[i], self.teamRatings[i], guild_settings, add_new_line_end=False)
+            msgs.append(team_str)
+
         if(len(self.list) % (self.teams_per_room) != 0):
             addition = ("`[%d/%d] teams for %d full rooms`"
                     % ((len(self.list) % self.teams_per_room), self.teams_per_room, int(len(self.list) / (self.teams_per_room))+1))
-        if len(msgs[-1])+len(addition) >= 2000:
-            msgs[-1].append(addition)
-        else:
-            msgs[-1] += addition
+            msgs.append(addition)
             
-        for msg in msgs:
-            await ctx.send(msg)
+        await send_batch_messages(ctx, msgs)
             
     async def unconfirmedsquads(self, ctx, guild_settings:GuildSettings.GuildSettings):
         """Display all unconfirmed squads for a queue"""
@@ -974,28 +951,19 @@ class IndividualQueue():
         if len(self.waiting) == 0:
             await(await ctx.send("There are no unconfirmed squads.")).delete(delay=5)
             return
+
         msgs = ["`Unconfirmed Squads`\n"]
         for i in range(len(self.waiting)):
-            #safeguard against potentially reaching 2000-char msg limit
-            addition = f"`{i+1}.` "
-            
-            addition += get_squad_str(self.waiting[i], "", self.team_size, guild_settings, add_new_line_end=True, generic_one_line=True)
-            if len(msgs[-1])+len(addition) >= 2000:
-                msgs.append("")
-        
-            msgs[-1] += addition
-        
-        addition = ""
+            team_str = f"`{i+1}.` "
+            team_str += get_squad_str(self.waiting[i], "", self.team_size, guild_settings, add_new_line_end=False, generic_one_line=True)
+            msgs.append(team_str)
+
         if(len(self.list) % (self.teams_per_room) != 0):
             addition = ("`[%d/%d] teams for %d full rooms`"
                     % ((len(self.list) % self.teams_per_room), self.teams_per_room, int(len(self.list) / (self.teams_per_room))+1))
-        if len(msgs[-1])+len(addition) >= 2000:
-            msgs[-1].append(addition)
-        else:
-            msgs[-1] += addition
+            msgs.append(addition)
             
-        for msg in msgs:
-            await ctx.send(msg)
+        await send_batch_messages(ctx, msgs)
         
     async def squad(self, ctx, guild_settings:GuildSettings.GuildSettings):
         """Displays information about your squad for a queue"""
@@ -1037,9 +1005,7 @@ class Queue(commands.Cog):
         with open('./config.json', 'r') as cjson:
             self.config = json.load(cjson)
 
-        
-        
-        #Load in the schedule from the pkl
+        # Load in the schedule from the pkl
         self.scheduled_events = self.load_pkl_schedule()
         self.guildQueues = defaultdict(lambda:defaultdict(lambda: IndividualQueue(bot)))
         self._scheduler_task = self.sqscheduler.start()
@@ -1064,14 +1030,15 @@ class Queue(commands.Cog):
     async def scheduler_queue_start(self):
         """Functions that tries to launch scheduled queues - Note that it won't launch any scheduled queues
         if an there is already a queue ongoing, instead it will send an error message and delete that event from the schedule"""
-        cur_time = datetime.now()
+        cur_time = get_cur_time()
         
         for guild_id, scheduled_events in self.scheduled_events.items():
             try:
                 guild_settings = GuildSettings.get_guild_settings(guild_id)
                 to_remove = [] #Keep a list of indexes to remove - can't remove while iterating
                 for ind, event in enumerate(scheduled_events):
-                    if (event.queue_close_time - guild_settings.joining_time) < cur_time:
+                    event_start_time = (event.queue_close_time - guild_settings.joining_time)
+                    if event_start_time < cur_time:
                         queue_chan = self.bot.get_channel(event.start_channel_id)
                         to_remove.append(ind)
                         if queue_chan == None: #cannot see the queue channel, no where to send an error message, must silently fail
@@ -1273,7 +1240,7 @@ class Queue(commands.Cog):
     @carrot_prohibit_check()
     async def currenttime(self, ctx):
         """Displays the current time for the bot."""
-        await ctx.channel.send(datetime.now() + TIME_ADJUSTMENT)
+        await ctx.channel.send(get_cur_time())
                                       
     @commands.command()
     @commands.guild_only()
@@ -1281,8 +1248,15 @@ class Queue(commands.Cog):
     @commands.max_concurrency(number=1,wait=True)
     @GuildSettings.has_guild_settings_check()
     @GuildSettings.has_roles_check()
-    async def schedule(self, ctx, queue_channel:discord.TextChannel, leaderboard_type:str, team_size: int, teams_per_room:int, schedule_time:str):
-        """Schedules a room in the future so that the staff doesn't have to be online to open the queue and make the rooms. "queue_channel" is the channel the queue will start in. "leaderboard_type" is your queue type, found in your queuebot settings. "team_size" is the number of players on each team. "teams_per_room" is the number of teams each room/text channel/voice channel (if applicable) will have. schedule_time is a date and time. Do not specify a time zone. The bot uses EASTERN TIME for all events. Convert your day and time to EASTERN TIME first. In your queuebot settings, also make sure that the queueing time and extension time are what you want them to be, as events started with this scheduler use these settings."""
+    async def schedule(self, ctx, queue_channel: discord.TextChannel, leaderboard_type: str, team_size: int, teams_per_room: int, schedule_time: str):
+        """Schedules a room in the future so that the staff doesn't have to be online to open the queue and make the rooms.
+        - "queue_channel" is the channel the queue will start in.
+        - "leaderboard_type" is your queue type, found in your queuebot settings.
+        - "team_size" is the number of players on each team.
+        - "teams_per_room" is the number of teams each room/text channel/voice channel (if applicable) will have.
+        - "schedule_time" is a date and time OR the number in a Discord timestamp. eg `!schedule RT 2v2 6 September 27 2023 8:00PM` or `!schedule RT 2v2 6 1695866400`
+        - If you use a date and time, convert your day and time to EASTERN TIME before scheduling, and do not specify a timezone.
+        - In your queuebot settings, also make sure that the queueing time and extension time are what you want them to be, as events started with this scheduler use these settings."""
         guild_settings = GuildSettings.get_guild_settings(ctx)        
         scheduled_events = self.scheduled_events[str(get_guild_id(ctx))]
         was_valid, leaderboard_type_fixed = await IndividualQueue.start_input_validation(ctx, leaderboard_type, team_size, teams_per_room, guild_settings)
@@ -1294,32 +1268,54 @@ class Queue(commands.Cog):
             return
         
         schedule_time = " ".join(ctx.message.content.split(" ")[5:])
-        
-        
-        try:
-            actual_time = None
-            with warnings.catch_warnings(record=True) as w:
-                # Cause all warnings to always be triggered.
-                warnings.simplefilter("always")
-                actual_time = parse(schedule_time)
-                if len(w) > 0 and issubclass(w[-1].category, UnknownTimezoneWarning):
-                    await ctx.send("Timezones confuse me, so please do not give a timezone. All events are EDT. Event not schedule.")
-                    return
-                    
+        actual_time = None
+        determined_epoch = False
+        if len(schedule_time.split(" ")) == 1:
+            epoch = None
+            if isint(schedule_time):
+                epoch = int(schedule_time)
+            else:
+                regex_results = re.search("^(<t:)(\d+)(:[A-Za-z]>)$", schedule_time)
+                if regex_results and len(regex_results.groups()) == 3 and isint(regex_results.group(2)):
+                    epoch = int(regex_results.group(2))
+            if epoch is not None:
+                actual_time = epoch_to_utc_dt(epoch)
+                determined_epoch = True
 
-            actual_time = actual_time - TIME_ADJUSTMENT
-            if queue_channel == None:
-                await ctx.send("I can't see the queue channel, so I can't schedule this event.")
+        if not determined_epoch:
+            try:
+                with warnings.catch_warnings(record=True) as w:
+                    # Cause all warnings to always be triggered.
+                    warnings.simplefilter("always")
+                    actual_time = parse(schedule_time, ignoretz=True)
+                    if len(w) > 0 and issubclass(w[-1].category, UnknownTimezoneWarning):
+                        await ctx.send("Timezones confuse me, so please do not give a timezone. All events are EDT. Event not scheduled.")
+                        return
+                    actual_time = naive_to_utc(actual_time)
+
+            except (ValueError, OverflowError):
+                await ctx.send("I couldn't figure out the date and time for your event. Try making it a bit more clear for me.")
                 return
 
-            event = Scheduled_Event(leaderboard_type_fixed, team_size, teams_per_room, actual_time, False, queue_channel.id, get_guild_id(ctx))
-            
-            scheduled_events.append(event)
-            scheduled_events.sort(key=lambda _event: _event.queue_close_time)
-            await ctx.send(f"Scheduled:\n{event.get_event_str(self.bot)}")
+        if queue_channel is None:
+            await ctx.send("I can't see the queue channel, so I can't schedule this event.")
+            return
 
-        except (ValueError, OverflowError):
-            await ctx.send("I couldn't figure out the date and time for your event. Try making it a bit more clear for me.")
+        if actual_time is None:
+            await ctx.send("Time is None. Event not scheduled. Contact Bad Wolf.")
+            return
+
+        event = Scheduled_Event(leaderboard_type_fixed, team_size, teams_per_room, actual_time, False, queue_channel.id, get_guild_id(ctx))
+
+        if len(scheduled_events) >= 50:
+            await ctx.send(f"A maximum of 50 scheduled events are allowed per server. Try removing some, or wait until scheduled events finish before scheduling more.")
+            return
+
+        scheduled_events.append(event)
+        scheduled_events.sort(key=lambda _event: _event.queue_close_time)
+        await ctx.send(f"Scheduled:\n{event.get_event_str(self.bot)}")
+
+
         self.pkl_schedule()
         
         
@@ -1328,18 +1324,22 @@ class Queue(commands.Cog):
     @carrot_prohibit_check()
     @GuildSettings.has_guild_settings_check()
     @GuildSettings.has_roles_check()
-    async def view_schedule(self, ctx):
+    async def view_schedule(self, ctx, announcements: bool = False):
         """Displays the schedule"""
         scheduled_events = self.scheduled_events[str(get_guild_id(ctx))]
-        
+        event_texts = []
         if len(scheduled_events) == 0:
             await ctx.send("There are currently no schedule events. Do `!schedule` to schedule a future event.")
-        else:
-            event_str = ""
+        elif announcements:
+            event_texts.append("__**Events for this week**__")
             for ind, this_event in enumerate(scheduled_events, 1):
-                event_str += f"`{ind}.` {this_event.get_event_str(self.bot)}\n"
-            event_str += "\nDo `!remove_event` to remove that event from the schedule."
-            await ctx.send(event_str)
+                event_texts.append(f"{ind}. {this_event.get_event_announcement_str()}")
+        else:
+            for ind, this_event in enumerate(scheduled_events, 1):
+                event_texts.append(f"`{ind}.` {this_event.get_event_str(self.bot)}")
+            event_texts.append("Do `!remove_event` to remove that event from the schedule.")
+
+        await send_batch_messages(ctx, event_texts)
             
     @commands.command()
     @commands.guild_only()
@@ -1369,13 +1369,7 @@ class Queue(commands.Cog):
         guild_settings = GuildSettings.get_guild_settings(ctx)        
         guilds_queues = self.get_guilds_queues(ctx)
         await self.get_queue_create(ctx, guilds_queues).start(ctx, 'mogi', 1, 100, guild_settings)
-    
-    
-        
-        
-        
 
-    
     
     def pkl_schedule(self):
         pkl_dump_path = "schedule_backup.pkl"
@@ -1440,8 +1434,6 @@ class Queue(commands.Cog):
         else:
             for message in condensed_messages:
                 await ctx.send(message)
-                
-                
             
         
         
@@ -1537,7 +1529,6 @@ async def elo_check(bot, message: discord.Message):
         for name, rating in sorted(playerMMRs.items(), key=lambda data: -1 if data[1] is False else data[1], reverse=True):
             mmr_str = "Unknown" if rating is False else str(rating)
             embed.add_field(name=name, value=mmr_str, inline=False)
-        
 
         await safe_send(message.channel, embed=embed, delete_after=30)
 
