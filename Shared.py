@@ -84,4 +84,6 @@ async def send_batch_messages(ctx, msgs: List[str]):
         condensed_messages[-1] += message_part + "\n"
     else:
         for message in condensed_messages:
-            await ctx.send(message.strip("\n"))
+            to_send = message.strip("\n")
+            if len(to_send) > 0:
+                await ctx.send(to_send)

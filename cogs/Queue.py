@@ -1330,6 +1330,7 @@ class Queue(commands.Cog):
         event_texts = []
         if len(scheduled_events) == 0:
             await ctx.send("There are currently no schedule events. Do `!schedule` to schedule a future event.")
+            return
         elif announcements:
             event_texts.append("__**Events for this week**__")
             for ind, this_event in enumerate(scheduled_events, 1):
