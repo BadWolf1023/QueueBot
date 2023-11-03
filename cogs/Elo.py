@@ -27,7 +27,7 @@ MKT_LOUNGE_API = "http://www.mariokarttour.net/api/leaderboard?from=1&to=9999"
 
 LORENZI_WEBSITE_DATA_API = "https://gb.hlorenzi.com/api/v1/graphql"
 MK7_GRAPHQL_PAYLOAD = """{
-    team(teamId: "GuzFk4")
+    team(teamId: "7t8cTh")
     {
         players {name, rating}
     }
