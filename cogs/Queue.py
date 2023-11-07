@@ -575,7 +575,7 @@ class IndividualQueue():
         if is_lounge(guild_settings_guild_id): 
             ml_channel_id = MKW_LOUNGE_ML_CHANNEL_ID
             mllu_channel_id = MKW_LOUNGE_MLLU_CHANNEL_ID
-        else if guild_settings_guild_id == MK7_GUILD_ID:
+        elif guild_settings_guild_id == MK7_GUILD_ID:
             mllu_channel_id = MK7_LOUNGE_MLLU_CHANNEL_ID
 
         if ml_channel_id is not None or mllu_channel_id is not None:
