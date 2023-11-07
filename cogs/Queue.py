@@ -7,7 +7,7 @@ from dateutil.parser import parse, UnknownTimezoneWarning
 import dill as p
 from collections import defaultdict
 from cogs import GuildSettings
-from Shared import isint, is_lounge, DISCORD_MAX_MESSAGE_LEN, get_guild_id, MKW_LOUNGE_RT_SQUAD_QUEUE_ROLE_STR, MKW_LOUNGE_CT_SQUAD_QUEUE_ROLE_STR, MKW_LOUNGE_ML_CHANNEL_ID, MKW_LOUNGE_MLLU_CHANNEL_ID, get_cur_time, epoch_to_utc_dt, naive_to_utc, send_batch_messages
+from Shared import isint, is_lounge, DISCORD_MAX_MESSAGE_LEN, get_guild_id, MKW_LOUNGE_RT_SQUAD_QUEUE_ROLE_STR, MKW_LOUNGE_CT_SQUAD_QUEUE_ROLE_STR, MKW_LOUNGE_ML_CHANNEL_ID, MKW_LOUNGE_MLLU_CHANNEL_ID, MK7_GUILD_ID, MK7_LOUNGE_MLLU_CHANNEL_ID, get_cur_time, epoch_to_utc_dt, naive_to_utc, send_batch_messages
 from ExtraChecks import carrot_prohibit_check, badwolf_command_check
 from builtins import staticmethod
 from typing import List
@@ -572,12 +572,19 @@ class IndividualQueue():
         guild_settings_guild_id = guild_settings.get_guild_id()
         ml_channel_id = None
         mllu_channel_id = None
-        if is_lounge(guild_settings_guild_id) or guild_settings_guild_id == PLACEHOLDER:
-            ml_channel = queue_channel.guild.get_channel(MKW_LOUNGE_ML_CHANNEL_ID)
-            mllu_channel = queue_channel.guild.get_channel(MKW_LOUNGE_MLLU_CHANNEL_ID)
-            
-            self.ml_sticky_message = await safe_send(ml_channel, self._get_mkw_ml_channel_message())
-            self.mllu_sticky_message = await safe_send(mllu_channel, self._get_mkw_mllu_channel_message())
+        if is_lounge(guild_settings_guild_id): 
+            ml_channel_id = MKW_LOUNGE_ML_CHANNEL_ID
+            mllu_channel_id = MKW_LOUNGE_MLLU_CHANNEL_ID
+        else if guild_settings_guild_id == MK7_GUILD_ID:
+            mllu_channel_id = MK7_LOUNGE_MLLU_CHANNEL_ID
+
+        if ml_channel_id is not None or mllu_channel_id is not None:
+            ml_channel = queue_channel.guild.get_channel(ml_channel_id)
+            mllu_channel = queue_channel.guild.get_channel(mllu_channel_id)
+            if ml_channel_id is not None:
+                self.ml_sticky_message = await safe_send(ml_channel, self._get_mkw_ml_channel_message())
+            if mllu_channel_id is not None:
+                self.mllu_sticky_message = await safe_send(mllu_channel, self._get_mkw_mllu_channel_message())
             if not self.sticky_message_updater.is_running():
                 self.sticky_message_updater.start()
     
