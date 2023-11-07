@@ -568,9 +568,14 @@ class IndividualQueue():
                                   ping_str))
         if guild_settings.lockdown_on:
             await unlockdown(queue_channel)
-        if is_lounge(guild_settings.get_guild_id()):
+        
+        guild_settings_guild_id = guild_settings.get_guild_id()
+        ml_channel_id = None
+        mllu_channel_id = None
+        if is_lounge(guild_settings_guild_id) or guild_settings_guild_id == PLACEHOLDER:
             ml_channel = queue_channel.guild.get_channel(MKW_LOUNGE_ML_CHANNEL_ID)
             mllu_channel = queue_channel.guild.get_channel(MKW_LOUNGE_MLLU_CHANNEL_ID)
+            
             self.ml_sticky_message = await safe_send(ml_channel, self._get_mkw_ml_channel_message())
             self.mllu_sticky_message = await safe_send(mllu_channel, self._get_mkw_mllu_channel_message())
             if not self.sticky_message_updater.is_running():
