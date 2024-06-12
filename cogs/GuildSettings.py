@@ -135,17 +135,14 @@ class GuildSettings():
                 if len(value) > 100:
                     return f"{key} has a maximum character limit of 100"
                 self.__dict__[key] = value
-                save_all_guild_settings()
                 return f"`{key}` set to **{value}**"
 
             elif typing is bool:
                 if value.lower() in {'yes', 'y', 'true', 'on'}:
                     self.__dict__[key] = True
-                    save_all_guild_settings()
                     return f"`{key}` set to **Yes**"
                 elif value.lower() in {'no', 'n', 'false', 'off'}:
                     self.__dict__[key] = False
-                    save_all_guild_settings()
                     return f"`{key}` set to **No**"
                 else:
                     return f"`{key}` not set. Valid options are **Yes** or **No**"
@@ -162,7 +159,6 @@ class GuildSettings():
                     if value > 100:
                         return f"`{key}` setting is must be 100 or less"
                 self.__dict__[key] = value
-                save_all_guild_settings()
                 return f"`{key}` set to **{value}**"
 
             elif typing is timedelta:
@@ -173,7 +169,6 @@ class GuildSettings():
                 if value > ONE_WEEK_MINUTES:
                     return f"`{key}` setting must be less than {ONE_WEEK_MINUTES} - that's one week in minutes"
                 self.__dict__[key] = timedelta(minutes=value)
-                save_all_guild_settings()
                 return f"`{key}` set to **{int(self.__dict__[key].total_seconds()//60)} minutes**"
 
             elif typing is set:
@@ -187,12 +182,10 @@ class GuildSettings():
                         if len(self.__dict__[key]) >= 100:
                             return f"**Cannot add {value}** to `{key}` because there is a 100 limit"
                         self.__dict__[key].add(value)
-                        save_all_guild_settings()
                         return f"**{value}** added to `{key}`"
                     else:
                         if value in self.__dict__[key]:
                             self.__dict__[key].remove(value)
-                            save_all_guild_settings()
                             return f"**{value}** removed from `{key}`"
                         else:
                             return f"**{value}** not in `{key}`"
@@ -244,7 +237,6 @@ class GuildSettings():
         self.rating_command_primary_rating_embed_title = 'Set title with !queuebot_setup'
         self.rating_command_secondary_rating_embed_title = 'Set title with !queuebot_setup'
         self.show_rating = False
-        save_all_guild_settings()
 
 
 GUILD_SETTINGS = defaultdict(GuildSettings)
@@ -367,12 +359,22 @@ def get_guild_settings(ctx) -> GuildSettings:
 
 def delete_settings(ctx):
     global GUILD_SETTINGS
+    id = ''
     if isinstance(ctx, str):
-        del GUILD_SETTINGS[ctx]
+        id = ctx
     elif isinstance(ctx, int):
-        del GUILD_SETTINGS[str(ctx)]
+        id = str(ctx)
     else:
-        del GUILD_SETTINGS[str(get_guild_id(ctx))]
+        id = str(get_guild_id(ctx))
+
+    del GUILD_SETTINGS[id]
+    try:
+        cur = CON.cursor()
+        cur.execute(f"DELETE FROM guild_settings WHERE guild_id = {id}")
+        CON.commit()
+    except sql.Error as e:
+        print(f"Error deleting settings for guild {id}: {e}")
+        return
 
 
 def default_settings(ctx) -> GuildSettings:
@@ -451,7 +453,8 @@ class Settings(commands.Cog):
     async def queuebot_setup(self, ctx, setting_name: str, setting_value: str):
         """Changes how Queuebot is currently configured - !queuebot_settings_help to learn how to use"""
         guild_settings = get_guild_settings(ctx)
-        guild_settings.set_guild_id(str(get_guild_id(ctx)))
+        guild_id = get_guild_id(ctx)
+        guild_settings.set_guild_id(guild_id)
         if setting_name not in guild_settings:
             await ctx.send(f"`{setting_name}` is not a valid setting. Do `!queuebot_settings_help` for what you can configure.")
             return
@@ -467,12 +470,14 @@ class Settings(commands.Cog):
             is_adding = args[0].lower() == 'add'
             term = " ".join(args[1:])
             info_text = guild_settings.set_item(setting_name, term, is_adding)
+            save_guild_settings(str(guild_id))
             if info_text is None:
                 info_text = "An unknown error occurred."
             await ctx.send(info_text)
 
         else:
             info_text = guild_settings.set_item(setting_name, setting_value)
+            save_guild_settings(str(guild_id))
             if info_text is None:
                 info_text = "An unknown error occurred."
             await ctx.send(info_text)
@@ -647,47 +652,127 @@ def create_tables():
             cur.execute(statement)
         CON.commit()
     except sql.Error as e:
-        print(e)
-
-# Replace all instances of save_all_guild_settings with save_guild_settings
+        print(f"Error creating tables: {e}")
 
 
 def save_guild_settings(id):
     global GUILD_SETTINGS
-    '''pkl_dump_path = "guildsettings_backup.pkl"
-    with open(pkl_dump_path, "wb") as pickle_out:
-        try:
-            p.dump(GUILD_SETTINGS, pickle_out)
-        except:
-            print("Could not dump pickle for guild settings.")'''
-    global CUR
+    global CON
+    guild_settings = GUILD_SETTINGS[id]
+    try:
+        cur = CON.cursor()
+        sql_statements = [
+            f"""DELETE FROM guild_settings WHERE guild_id = {id}""",
+            f"""INSERT INTO guild_settings VALUES (
+                {id},
+                '{guild_settings.primary_rating_command}',
+                '{guild_settings.secondary_rating_command}',
+                '{guild_settings.primary_leaderboard_name}',
+                {guild_settings.secondary_leaderboard_on},
+                '{guild_settings.secondary_leaderboard_name}',
+                {guild_settings.primary_leaderboard_secondary_rating_on},
+                {guild_settings.secondary_leaderboard_secondary_rating_on},
+                '{guild_settings.primary_rating_display_text}',
+                '{guild_settings.secondary_rating_display_text}',
+                '{guild_settings.primary_rating_description_text}',
+                '{guild_settings.secondary_rating_description_text}',
+                {guild_settings.primary_leaderboard_num_secondary_players},
+                {guild_settings.secondary_leaderboard_num_secondary_players},
+                {guild_settings.joining_time.total_seconds()//60},
+                {guild_settings.extension_time.total_seconds()//60},
+                {guild_settings.should_ping},
+                {guild_settings.create_voice_channels},
+                {guild_settings.send_scoreboard_text},
+                {guild_settings.room_open_time},
+                {guild_settings.lockdown_on},
+                '{guild_settings.created_channel_name}',
+                {guild_settings.rating_command_on},
+                '{guild_settings.rating_command_primary_rating_embed_title}',
+                '{guild_settings.rating_command_secondary_rating_embed_title}',
+                {guild_settings.show_rating}
+                );"""
+        ]
+        for role_name in guild_settings.roles_have_power:
+            sql_statements.append(
+                f"INSERT INTO roles_have_power VALUES ({id}, '{role_name}')")
+        for role_name in guild_settings.roles_can_see_primary_leaderboard_rooms:
+            sql_statements.append(
+                f"INSERT INTO roles_can_see_primary_leaderboard_rooms VALUES ({id}, '{role_name}')")
+        for role_name in guild_settings.roles_can_see_secondary_leaderboard_rooms:
+            sql_statements.append(
+                f"INSERT INTO roles_can_see_secondary_leaderboard_rooms VALUES ({id}, '{role_name}')")
 
+        for statement in sql_statements:
+            cur.execute(statement)
+        CON.commit()
 
-def save_all_guild_settings():
-    global GUILD_SETTINGS
-    pkl_dump_path = "guildsettings_backup.pkl"
-    with open(pkl_dump_path, "wb") as pickle_out:
-        try:
-            p.dump(GUILD_SETTINGS, pickle_out)
-        except:
-            print("Could not dump pickle for guild settings.")
+    except sql.Error as e:
+        print(f"Error saving settings for guild {id}: {e}")
+        return
 
 
 def load_all_guild_settings():
     global GUILD_SETTINGS
+    global CON
     try:
-        with open("guildsettings_backup.pkl", "rb") as pickle_in:
-            try:
-                temp = p.load(pickle_in)
-                if temp == None:
-                    temp = defaultdict(lambda: GuildSettings())
-                GUILD_SETTINGS = temp
-            except:
-                print("Could not read in pickle for guildsettings_backup.pkl data.")
-                GUILD_SETTINGS = defaultdict(lambda: GuildSettings())
-    except:
-        print("guildsettings_backup.pkl does not exist, so no guild settings loaded in. Will create when a guild makes settings.")
-        GUILD_SETTINGS = defaultdict(lambda: GuildSettings())
+        cur = CON.cursor()
+        res = cur.execute("SELECT * FROM guild_settings")
+        rows = res.fetchall()
+        for row in rows:
+            guild_id = row[0]
+            guild_settings = GuildSettings()
+            guild_settings.set_guild_id(guild_id)
+            guild_settings.primary_rating_command = row[1]
+            guild_settings.secondary_rating_command = row[2]
+            guild_settings.primary_leaderboard_name = row[3]
+            guild_settings.secondary_leaderboard_on = row[4]
+            guild_settings.secondary_leaderboard_name = row[5]
+            guild_settings.primary_leaderboard_secondary_rating_on = row[6]
+            guild_settings.secondary_leaderboard_secondary_rating_on = row[7]
+            guild_settings.primary_rating_display_text = row[8]
+            guild_settings.secondary_rating_display_text = row[9]
+            guild_settings.primary_rating_description_text = row[10]
+            guild_settings.secondary_rating_description_text = row[11]
+            guild_settings.primary_leaderboard_num_secondary_players = row[12]
+            guild_settings.secondary_leaderboard_num_secondary_players = row[13]
+            guild_settings.joining_time = timedelta(minutes=row[14])
+            guild_settings.extension_time = timedelta(minutes=row[15])
+            guild_settings.should_ping = row[16]
+            guild_settings.create_voice_channels = row[17]
+            guild_settings.send_scoreboard_text = row[18]
+            guild_settings.room_open_time = row[19]
+            guild_settings.lockdown_on = row[20]
+            guild_settings.created_channel_name = row[21]
+            guild_settings.rating_command_on = row[22]
+            guild_settings.rating_command_primary_rating_embed_title = row[23]
+            guild_settings.rating_command_secondary_rating_embed_title = row[24]
+            guild_settings.show_rating = row[25]
+
+            res = cur.execute(
+                f"SELECT role_name FROM roles_have_power WHERE guild_id = {guild_id}")
+            rows = res.fetchall()
+            for row in rows:
+                guild_settings.roles_have_power.add(row[0])
+
+            res = cur.execute(
+                f"SELECT role_name FROM roles_can_see_primary_leaderboard_rooms WHERE guild_id = {guild_id}")
+            rows = res.fetchall()
+            for row in rows:
+                guild_settings.roles_can_see_primary_leaderboard_rooms.add(
+                    row[0])
+
+            res = cur.execute(
+                f"SELECT role_name FROM roles_can_see_secondary_leaderboard_rooms WHERE guild_id = {guild_id}")
+            rows = res.fetchall()
+            for row in rows:
+                guild_settings.roles_can_see_secondary_leaderboard_rooms.add(
+                    row[0])
+
+            GUILD_SETTINGS[str(guild_id)] = guild_settings
+
+    except sql.Error as e:
+        print(f"Error loading guild settings: {e}")
+        return
 
     version_1_patch(GUILD_SETTINGS)
     version_2_patch(GUILD_SETTINGS)
@@ -699,12 +784,12 @@ def load_all_guild_settings():
 
     ensure_command_descriptions_accurate()
     ensure_all_guilds_settings_patched()
-    save_all_guild_settings()
 
 
 def setup(bot):
     global CON
     CON = sql.connect("guild_settings.db")
     CON.execute("PRAGMA foreign_keys = ON")
+    create_tables()
     load_all_guild_settings()
     bot.add_cog(Settings(bot))
