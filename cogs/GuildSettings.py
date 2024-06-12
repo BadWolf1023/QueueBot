@@ -359,21 +359,21 @@ def get_guild_settings(ctx) -> GuildSettings:
 
 def delete_settings(ctx):
     global GUILD_SETTINGS
-    id = ''
+    guild_id = ''
     if isinstance(ctx, str):
-        id = ctx
+        guild_id = ctx
     elif isinstance(ctx, int):
-        id = str(ctx)
+        guild_id = str(ctx)
     else:
-        id = str(get_guild_id(ctx))
+        guild_id = str(get_guild_id(ctx))
 
-    del GUILD_SETTINGS[id]
+    del GUILD_SETTINGS[guild_id]
     try:
         cur = CON.cursor()
-        cur.execute(f"DELETE FROM guild_settings WHERE guild_id = {id}")
+        cur.execute("DELETE FROM guild_settings WHERE guild_id = ?", (guild_id,))
         CON.commit()
     except sql.Error as e:
-        print(f"Error deleting settings for guild {id}: {e}")
+        print(f"Error deleting settings for guild {guild_id}: {e}")
         return
 
 
@@ -603,7 +603,7 @@ def create_tables():
     global CON
     sql_statements = [
         """CREATE TABLE IF NOT EXISTS guild_settings (
-                    guild_id INTEGER PRIMARY KEY,
+                    guild_id TEXT PRIMARY KEY,
                     primary_rating_command TEXT,
                     secondary_rating_command TEXT,
                     primary_leaderboard_name TEXT,
@@ -631,17 +631,17 @@ def create_tables():
                     show_rating BOOLEAN
                     );""",
         """CREATE TABLE IF NOT EXISTS roles_have_power (
-                    guild_id INTEGER,
+                    guild_id TEXT,
                     role_name TEXT,
                     FOREIGN KEY(guild_id) REFERENCES guild_settings(guild_id) ON DELETE CASCADE
                     );""",
         """CREATE TABLE IF NOT EXISTS roles_can_see_primary_leaderboard_rooms (
-                    guild_id INTEGER,
+                    guild_id TEXT,
                     role_name TEXT,
                     FOREIGN KEY(guild_id) REFERENCES guild_settings(guild_id) ON DELETE CASCADE
                     );""",
         """CREATE TABLE IF NOT EXISTS roles_can_see_secondary_leaderboard_rooms (
-                    guild_id INTEGER,
+                    guild_id TEXT,
                     role_name TEXT,
                     FOREIGN KEY(guild_id) REFERENCES guild_settings(guild_id) ON DELETE CASCADE
                     );"""
@@ -655,59 +655,83 @@ def create_tables():
         print(f"Error creating tables: {e}")
 
 
-def save_guild_settings(id):
+def save_guild_settings(guild_id):
     global GUILD_SETTINGS
     global CON
-    guild_settings = GUILD_SETTINGS[id]
+    guild_settings = GUILD_SETTINGS[guild_id]
     try:
         cur = CON.cursor()
-        sql_statements = [
-            f"""DELETE FROM guild_settings WHERE guild_id = {id}""",
-            f"""INSERT INTO guild_settings VALUES (
-                {id},
-                '{guild_settings.primary_rating_command}',
-                '{guild_settings.secondary_rating_command}',
-                '{guild_settings.primary_leaderboard_name}',
-                {guild_settings.secondary_leaderboard_on},
-                '{guild_settings.secondary_leaderboard_name}',
-                {guild_settings.primary_leaderboard_secondary_rating_on},
-                {guild_settings.secondary_leaderboard_secondary_rating_on},
-                '{guild_settings.primary_rating_display_text}',
-                '{guild_settings.secondary_rating_display_text}',
-                '{guild_settings.primary_rating_description_text}',
-                '{guild_settings.secondary_rating_description_text}',
-                {guild_settings.primary_leaderboard_num_secondary_players},
-                {guild_settings.secondary_leaderboard_num_secondary_players},
-                {guild_settings.joining_time.total_seconds()//60},
-                {guild_settings.extension_time.total_seconds()//60},
-                {guild_settings.should_ping},
-                {guild_settings.create_voice_channels},
-                {guild_settings.send_scoreboard_text},
-                {guild_settings.room_open_time},
-                {guild_settings.lockdown_on},
-                '{guild_settings.created_channel_name}',
-                {guild_settings.rating_command_on},
-                '{guild_settings.rating_command_primary_rating_embed_title}',
-                '{guild_settings.rating_command_secondary_rating_embed_title}',
-                {guild_settings.show_rating}
-                );"""
-        ]
+        cur.execute(
+            "DELETE FROM guild_settings WHERE guild_id = ?", (guild_id,))
+        cur.execute("""INSERT INTO guild_settings VALUES (
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?);""",
+                    (
+                        guild_id,
+                        guild_settings.primary_rating_command,
+                        guild_settings.secondary_rating_command,
+                        guild_settings.primary_leaderboard_name,
+                        guild_settings.secondary_leaderboard_on,
+                        guild_settings.secondary_leaderboard_name,
+                        guild_settings.primary_leaderboard_secondary_rating_on,
+                        guild_settings.secondary_leaderboard_secondary_rating_on,
+                        guild_settings.primary_rating_display_text,
+                        guild_settings.secondary_rating_display_text,
+                        guild_settings.primary_rating_description_text,
+                        guild_settings.secondary_rating_description_text,
+                        guild_settings.primary_leaderboard_num_secondary_players,
+                        guild_settings.secondary_leaderboard_num_secondary_players,
+                        guild_settings.joining_time.total_seconds()//60,
+                        guild_settings.extension_time.total_seconds()//60,
+                        guild_settings.should_ping,
+                        guild_settings.create_voice_channels,
+                        guild_settings.send_scoreboard_text,
+                        guild_settings.room_open_time,
+                        guild_settings.lockdown_on,
+                        guild_settings.created_channel_name,
+                        guild_settings.rating_command_on,
+                        guild_settings.rating_command_primary_rating_embed_title,
+                        guild_settings.rating_command_secondary_rating_embed_title,
+                        guild_settings.show_rating
+                    )
+                    )
         for role_name in guild_settings.roles_have_power:
-            sql_statements.append(
-                f"INSERT INTO roles_have_power VALUES ({id}, '{role_name}')")
+            cur.execute("INSERT INTO roles_have_power VALUES (?, ?)",
+                        (guild_id, role_name))
         for role_name in guild_settings.roles_can_see_primary_leaderboard_rooms:
-            sql_statements.append(
-                f"INSERT INTO roles_can_see_primary_leaderboard_rooms VALUES ({id}, '{role_name}')")
+            cur.execute(
+                "INSERT INTO roles_can_see_primary_leaderboard_rooms VALUES (?, ?)", (guild_id, role_name))
         for role_name in guild_settings.roles_can_see_secondary_leaderboard_rooms:
-            sql_statements.append(
-                f"INSERT INTO roles_can_see_secondary_leaderboard_rooms VALUES ({id}, '{role_name}')")
-
-        for statement in sql_statements:
-            cur.execute(statement)
+            cur.execute(
+                "INSERT INTO roles_can_see_secondary_leaderboard_rooms VALUES (?, ?)", (guild_id, role_name))
         CON.commit()
 
     except sql.Error as e:
-        print(f"Error saving settings for guild {id}: {e}")
+        print(f"Error saving settings for guild {guild_id}: {e}")
         return
 
 
@@ -721,7 +745,7 @@ def load_all_guild_settings():
         for row in rows:
             guild_id = row[0]
             guild_settings = GuildSettings()
-            guild_settings.set_guild_id(guild_id)
+            guild_settings.set_guild_id(int(guild_id))
             guild_settings.primary_rating_command = row[1]
             guild_settings.secondary_rating_command = row[2]
             guild_settings.primary_leaderboard_name = row[3]
@@ -749,20 +773,20 @@ def load_all_guild_settings():
             guild_settings.show_rating = row[25]
 
             res = cur.execute(
-                f"SELECT role_name FROM roles_have_power WHERE guild_id = {guild_id}")
+                "SELECT role_name FROM roles_have_power WHERE guild_id = ?", (guild_id,))
             rows = res.fetchall()
             for row in rows:
                 guild_settings.roles_have_power.add(row[0])
 
             res = cur.execute(
-                f"SELECT role_name FROM roles_can_see_primary_leaderboard_rooms WHERE guild_id = {guild_id}")
+                "SELECT role_name FROM roles_can_see_primary_leaderboard_rooms WHERE guild_id = ?", (guild_id,))
             rows = res.fetchall()
             for row in rows:
                 guild_settings.roles_can_see_primary_leaderboard_rooms.add(
                     row[0])
 
             res = cur.execute(
-                f"SELECT role_name FROM roles_can_see_secondary_leaderboard_rooms WHERE guild_id = {guild_id}")
+                "SELECT role_name FROM roles_can_see_secondary_leaderboard_rooms WHERE guild_id = ?", (guild_id,))
             rows = res.fetchall()
             for row in rows:
                 guild_settings.roles_can_see_secondary_leaderboard_rooms.add(
