@@ -7,6 +7,7 @@ from discord.ext import commands
 from collections import defaultdict
 from datetime import timedelta
 import dill as p
+import aiosqlite as aiosql
 import sqlite3 as sql
 from CustomExceptions import NoGuildSettings
 from ExtraChecks import carrot_prohibit_check
@@ -357,7 +358,7 @@ def get_guild_settings(ctx) -> GuildSettings:
     return GUILD_SETTINGS[str(get_guild_id(ctx))]
 
 
-def delete_settings(ctx):
+async def delete_settings(ctx):
     global GUILD_SETTINGS
     guild_id = ''
     if isinstance(ctx, str):
@@ -369,16 +370,18 @@ def delete_settings(ctx):
 
     del GUILD_SETTINGS[guild_id]
     try:
-        cur = CON.cursor()
-        cur.execute("DELETE FROM guild_settings WHERE guild_id = ?", (guild_id,))
-        CON.commit()
-    except sql.Error as e:
+        con = await aiosql.connect('guild_settings.db')
+        await con.execute("PRAGMA foreign_keys = ON")
+        await con.execute("DELETE FROM guild_settings WHERE guild_id = ?", (guild_id,))
+        await con.commit()
+        await con.close()
+    except aiosql.Error as e:
         print(f"Error deleting settings for guild {guild_id}: {e}")
         return
 
 
-def default_settings(ctx) -> GuildSettings:
-    delete_settings(ctx)
+async def default_settings(ctx) -> GuildSettings:
+    await delete_settings(ctx)
 
     return get_guild_settings(ctx)
 
@@ -430,7 +433,7 @@ class Settings(commands.Cog):
     @has_roles_check()
     async def reset_settings(self, ctx):
         """WARNING: Completely resets your server's settings - cannot undo! This does **not** reset your Sheet settings (those are different settings)."""
-        delete_settings(ctx)
+        await delete_settings(ctx)
         await ctx.send("Settings reset to default.")
 
     @commands.command()
@@ -470,14 +473,14 @@ class Settings(commands.Cog):
             is_adding = args[0].lower() == 'add'
             term = " ".join(args[1:])
             info_text = guild_settings.set_item(setting_name, term, is_adding)
-            save_guild_settings(str(guild_id))
+            await save_guild_settings(str(guild_id))
             if info_text is None:
                 info_text = "An unknown error occurred."
             await ctx.send(info_text)
 
         else:
             info_text = guild_settings.set_item(setting_name, setting_value)
-            save_guild_settings(str(guild_id))
+            await save_guild_settings(str(guild_id))
             if info_text is None:
                 info_text = "An unknown error occurred."
             await ctx.send(info_text)
@@ -599,71 +602,15 @@ def version_7_patch(all_guild_settings):
             del guild_setting.type_mapping['secondary_leaderboard_rating_description_text']
 
 
-def create_tables():
-    global CON
-    sql_statements = [
-        """CREATE TABLE IF NOT EXISTS guild_settings (
-                    guild_id TEXT PRIMARY KEY,
-                    primary_rating_command TEXT,
-                    secondary_rating_command TEXT,
-                    primary_leaderboard_name TEXT,
-                    secondary_leaderboard_on BOOLEAN,
-                    secondary_leaderboard_name TEXT,
-                    primary_leaderboard_secondary_rating_on BOOLEAN,
-                    secondary_leaderboard_secondary_rating_on BOOLEAN,
-                    primary_rating_display_text TEXT,
-                    secondary_rating_display_text TEXT,
-                    primary_rating_description_text TEXT,
-                    secondary_rating_description_text TEXT,
-                    primary_leaderboard_num_secondary_players INTEGER,
-                    secondary_leaderboard_num_secondary_players INTEGER,
-                    joining_time INTEGER,
-                    extension_time INTEGER,
-                    should_ping BOOLEAN,
-                    create_voice_channels BOOLEAN,
-                    send_scoreboard_text BOOLEAN,
-                    room_open_time INTEGER,
-                    lockdown_on BOOLEAN,
-                    created_channel_name TEXT,
-                    rating_command_on BOOLEAN,
-                    rating_command_primary_rating_embed_title TEXT,
-                    rating_command_secondary_rating_embed_title TEXT,
-                    show_rating BOOLEAN
-                    );""",
-        """CREATE TABLE IF NOT EXISTS roles_have_power (
-                    guild_id TEXT,
-                    role_name TEXT,
-                    FOREIGN KEY(guild_id) REFERENCES guild_settings(guild_id) ON DELETE CASCADE
-                    );""",
-        """CREATE TABLE IF NOT EXISTS roles_can_see_primary_leaderboard_rooms (
-                    guild_id TEXT,
-                    role_name TEXT,
-                    FOREIGN KEY(guild_id) REFERENCES guild_settings(guild_id) ON DELETE CASCADE
-                    );""",
-        """CREATE TABLE IF NOT EXISTS roles_can_see_secondary_leaderboard_rooms (
-                    guild_id TEXT,
-                    role_name TEXT,
-                    FOREIGN KEY(guild_id) REFERENCES guild_settings(guild_id) ON DELETE CASCADE
-                    );"""
-    ]
-    try:
-        cur = CON.cursor()
-        for statement in sql_statements:
-            cur.execute(statement)
-        CON.commit()
-    except sql.Error as e:
-        print(f"Error creating tables: {e}")
-
-
-def save_guild_settings(guild_id):
+async def save_guild_settings(guild_id):
     global GUILD_SETTINGS
-    global CON
     guild_settings = GUILD_SETTINGS[guild_id]
     try:
-        cur = CON.cursor()
-        cur.execute(
+        con = await aiosql.connect('guild_settings.db')
+        await con.execute("PRAGMA foreign_keys = ON")
+        await con.execute(
             "DELETE FROM guild_settings WHERE guild_id = ?", (guild_id,))
-        cur.execute("""INSERT INTO guild_settings VALUES (
+        await con.execute("""INSERT INTO guild_settings VALUES (
             ?,
             ?,
             ?,
@@ -720,26 +667,82 @@ def save_guild_settings(guild_id):
                     )
                     )
         for role_name in guild_settings.roles_have_power:
-            cur.execute("INSERT INTO roles_have_power VALUES (?, ?)",
+            await con.execute("INSERT INTO roles_have_power VALUES (?, ?)",
                         (guild_id, role_name))
         for role_name in guild_settings.roles_can_see_primary_leaderboard_rooms:
-            cur.execute(
+            await con.execute(
                 "INSERT INTO roles_can_see_primary_leaderboard_rooms VALUES (?, ?)", (guild_id, role_name))
         for role_name in guild_settings.roles_can_see_secondary_leaderboard_rooms:
-            cur.execute(
+            await con.execute(
                 "INSERT INTO roles_can_see_secondary_leaderboard_rooms VALUES (?, ?)", (guild_id, role_name))
-        CON.commit()
+        await con.commit()
+        await con.close()
 
-    except sql.Error as e:
+    except aiosql.Error as e:
         print(f"Error saving settings for guild {guild_id}: {e}")
         return
 
 
 def load_all_guild_settings():
-    global GUILD_SETTINGS
-    global CON
+    con = sql.connect('guild_settings.db')
+    con.execute("PRAGMA foreign_keys = ON")
+    cur = con.cursor()
+
+    sql_statements = [
+        """CREATE TABLE IF NOT EXISTS guild_settings (
+                    guild_id TEXT PRIMARY KEY,
+                    primary_rating_command TEXT,
+                    secondary_rating_command TEXT,
+                    primary_leaderboard_name TEXT,
+                    secondary_leaderboard_on BOOLEAN,
+                    secondary_leaderboard_name TEXT,
+                    primary_leaderboard_secondary_rating_on BOOLEAN,
+                    secondary_leaderboard_secondary_rating_on BOOLEAN,
+                    primary_rating_display_text TEXT,
+                    secondary_rating_display_text TEXT,
+                    primary_rating_description_text TEXT,
+                    secondary_rating_description_text TEXT,
+                    primary_leaderboard_num_secondary_players INTEGER,
+                    secondary_leaderboard_num_secondary_players INTEGER,
+                    joining_time INTEGER,
+                    extension_time INTEGER,
+                    should_ping BOOLEAN,
+                    create_voice_channels BOOLEAN,
+                    send_scoreboard_text BOOLEAN,
+                    room_open_time INTEGER,
+                    lockdown_on BOOLEAN,
+                    created_channel_name TEXT,
+                    rating_command_on BOOLEAN,
+                    rating_command_primary_rating_embed_title TEXT,
+                    rating_command_secondary_rating_embed_title TEXT,
+                    show_rating BOOLEAN
+                    );""",
+        """CREATE TABLE IF NOT EXISTS roles_have_power (
+                    guild_id TEXT,
+                    role_name TEXT,
+                    FOREIGN KEY(guild_id) REFERENCES guild_settings(guild_id) ON DELETE CASCADE
+                    );""",
+        """CREATE TABLE IF NOT EXISTS roles_can_see_primary_leaderboard_rooms (
+                    guild_id TEXT,
+                    role_name TEXT,
+                    FOREIGN KEY(guild_id) REFERENCES guild_settings(guild_id) ON DELETE CASCADE
+                    );""",
+        """CREATE TABLE IF NOT EXISTS roles_can_see_secondary_leaderboard_rooms (
+                    guild_id TEXT,
+                    role_name TEXT,
+                    FOREIGN KEY(guild_id) REFERENCES guild_settings(guild_id) ON DELETE CASCADE
+                    );"""
+    ]
+
     try:
-        cur = CON.cursor()
+        for statement in sql_statements:
+            cur.execute(statement)
+        con.commit()
+    except sql.Error as e:
+        print(f"Error creating tables: {e}")
+    
+    global GUILD_SETTINGS
+    try:
         res = cur.execute("SELECT * FROM guild_settings")
         rows = res.fetchall()
         for row in rows:
@@ -797,6 +800,8 @@ def load_all_guild_settings():
     except sql.Error as e:
         print(f"Error loading guild settings: {e}")
         return
+    
+    con.close()
 
     version_1_patch(GUILD_SETTINGS)
     version_2_patch(GUILD_SETTINGS)
@@ -811,9 +816,5 @@ def load_all_guild_settings():
 
 
 def setup(bot):
-    global CON
-    CON = sql.connect("guild_settings.db")
-    CON.execute("PRAGMA foreign_keys = ON")
-    create_tables()
     load_all_guild_settings()
     bot.add_cog(Settings(bot))
