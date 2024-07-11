@@ -328,6 +328,7 @@ Here are 6 examples:
 `!queuebot_setup should_ping yes`
 `!queuebot_setup joining_time 45`
 `!queuebot_setup rating_name elo`
+`!queuebot_setup primary_rating_description_text None` - the special keywork `None` sets the text to blank
 `!queuebot_setup roles_have_power add Staff`
 `!queuebot_setup roles_have_power remove Staff`
 
@@ -479,6 +480,8 @@ class Settings(commands.Cog):
             await ctx.send(info_text)
 
         else:
+            if setting_value == "None":
+                setting_value = ""
             info_text = guild_settings.set_item(setting_name, setting_value)
             await save_guild_settings(str(guild_id))
             if info_text is None:
