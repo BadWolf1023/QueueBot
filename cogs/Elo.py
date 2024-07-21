@@ -47,7 +47,13 @@ MK8DX_ITALIA_GRAPHQL_PAYLOAD = """{
     }
 }"""
 
-    
+MKW_RETRO_REWIND_GRAPHQL_PAYLOAD = """{
+    team(teamId: "VFhV5W")
+    {
+        players {name, rating}
+    }
+}"""
+
 
 
 
@@ -199,6 +205,7 @@ mkw_item_rain_name_fix = utf8_to_ascii_mapping_name_fix
 mkw_lounge_name_fix = utf8_to_ascii_mapping_name_fix
 mk8dx_italia_lounge_name_fix = utf8_to_ascii_mapping_name_fix
 mkt_lounge_name_fix = utf8_to_ascii_mapping_name_fix
+mkw_retro_rewind_name_fix = utf8_to_ascii_mapping_name_fix
 
 def json_match_ratings(all_ratings, members:[discord.Member], data_corruption_check, json_transformer, name_fix=None):
     using_str = isinstance(members[0], str)
@@ -237,6 +244,10 @@ async def mkw_item_rain_mmr(ctx, members:[discord.Member], is_primary_leaderboar
 async def mk8_italia_mmr(ctx, members:[discord.Member], is_primary_leaderboard=True, is_primary_rating=True):
     json_data = await lorenzi_get_JSON(ctx, MK8DX_ITALIA_GRAPHQL_PAYLOAD)
     return json_match_ratings(json_data, members, lorenzi_data_corruption_check, lorenzi_json_transformer, name_fix=mk8dx_italia_lounge_name_fix)
+
+async def mkw_retro_rewind_rating(ctx, members:[discord.Member], is_primary_leaderboard=True, is_primary_rating=True):
+    json_data = await lorenzi_get_JSON(ctx, MKW_RETRO_REWIND_GRAPHQL_PAYLOAD)
+    return json_match_ratings(json_data, members, lorenzi_data_corruption_check, lorenzi_json_transformer, name_fix=mkw_retro_rewind_name_fix)
     
 
 async def mkw_lounge_website_mmr(members:[discord.Member], is_rt=True, name_fix=None):
@@ -501,12 +512,14 @@ class GuildRating():
             return await mkw_lounge_mmr(ctx, members, is_primary_leaderboard, is_primary_rating)
         elif Shared.get_guild_id(ctx) == Shared.MK8DX_ITALIA_GUILD_ID or Shared.get_guild_id(ctx) == Shared.MK8DX_ITALIA_TEST_GUILD_ID:
             return await mk8_italia_mmr(ctx, members, is_primary_leaderboard, is_primary_rating)
+        elif Shared.get_guild_id(ctx) == Shared.MKW_RETRO_REWIND_GUILD_ID:
+            return await mkw_retro_rewind_rating(ctx, members, is_primary_leaderboard, is_primary_rating)
         elif Shared.get_guild_id(ctx) == Shared.MKT_LOUNGE_GUILD_ID:
             return await mkt_lounge_mmr(ctx, members, is_primary_leaderboard, is_primary_rating)
         elif self.guild_rating.using_sheet:
             return await self.google_sheets_mmr(ctx, members, is_primary_leaderboard, is_primary_rating)
         return False
-    
+
 
     
     async def set_use_rating(self, ctx, yes_or_no:str):
