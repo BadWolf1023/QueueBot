@@ -48,7 +48,7 @@ MK8DX_ITALIA_GRAPHQL_PAYLOAD = """{
 }"""
 
 MKW_RETRO_REWIND_GRAPHQL_PAYLOAD = """{
-    team(teamId: "VFhV5W")
+    team(teamId: "D7D6u-")
     {
         players {name, rating}
     }
